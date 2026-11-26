@@ -1,0 +1,14 @@
+.demo {
+  display: grid;
+  gap: 0.75rem;
+  min-height: 100vh;
+  padding: 1.25rem;
+}
+.demo h1, .demo p {
+  margin: 0;
+}
+.demo canvas {
+  width: 100%;
+  height: min(70vh, 720px);
+  border-radius: 0.5rem;
+}

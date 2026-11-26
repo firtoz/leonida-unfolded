@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.rpf
+*.ttpf
+*.terrain-index
+*.png
+*.webp
+!/explorer.webp
+*.jpg
+*.mp4
+*.sqlite*
+
+third-party/bcpack-wasm/target/

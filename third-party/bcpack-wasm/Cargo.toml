@@ -1,0 +1,19 @@
+[package]
+name = "terrain-bcpack-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bcpack-rs = { git = "https://github.com/Ahmet-Dedeler/bcpack-rs", rev = "02a8c4e802800d55b55797a32dbfe8b16d7fc23f" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,24 @@
+{
+  "name": "leonida-unfolded",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun vite",
+    "build": "bun scripts/build.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test",
+    "preview": "bun scripts/preview.ts",
+    "bench:fps": "bun scripts/benchmark-fps.ts",
+    "bench:chart": "bun scripts/chart-fps-benchmarks.ts"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "stats.js": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.4",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}

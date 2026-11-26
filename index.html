@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#171123">
+  <title>Leonida Unfolded</title>
+  <link rel="icon" type="image/webp" sizes="128x128" href="./explorer.webp">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main id="workspace" hidden>
+    <canvas id="terrain-mesh" aria-hidden="true" hidden></canvas>
+    <canvas id="map" aria-label="Terrain map. Drag to pan, Shift-drag to rotate or tilt, and scroll to zoom." tabindex="0"></canvas>
+    <canvas id="road-overlay" aria-hidden="true"></canvas>
+    <canvas id="district-overlay" aria-hidden="true" hidden></canvas>
+    <div id="district-hover" role="tooltip" hidden></div>
+    <div id="walk-preview" aria-hidden="true" hidden>
+      <span class="explorer-figure"></span>
+      <span class="walk-ray"></span><span class="walk-hit"></span>
+    </div>
+    <div id="explorer-ghost" aria-hidden="true" hidden><span class="explorer-figure"></span></div>
+    <div id="walk-status" role="status" hidden></div>
+    <div id="map-player" role="img" aria-label="You are here" hidden>
+      <span class="map-player-arrow" aria-hidden="true"></span>
+    </div>
+    <div class="map-bar">
+      <div class="wordmark">Leonida Unfolded</div>
+      <div class="map-actions">
+        <button id="resume-street" class="primary" type="button" hidden>Resume</button>
+        <button id="toggle-sidebar" type="button" aria-controls="sidebar" aria-expanded="true">Sidebar</button>
+      </div>
+    </div>
+    <div class="map-tools" role="group" aria-label="Map controls">
+      <button id="map-recenter" type="button" aria-label="Center on your location" title="Center on your location" hidden>
+        <span class="map-recenter-icon" aria-hidden="true"></span>
+      </button>
+      <div class="map-zoom" role="group" aria-label="Map zoom">
+        <button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+        <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+      </div>
+      <button id="walk-here" class="primary" type="button" aria-label="Explore here" aria-pressed="false" title="Drag the explorer onto the map or click to choose a spot">
+        <span class="explorer-icon" aria-hidden="true"><span class="explorer-figure"></span></span>
+      </button>
+    </div>
+    <aside id="sidebar" aria-label="Map settings">
+      <h2 class="sidebar-heading">Map settings</h2>
+      <nav class="sidebar-nav" aria-label="Sidebar sections">
+        <button id="show-layers" data-sidebar-tab="layers" type="button" aria-controls="layer-panel" aria-pressed="true">Layers</button>
+        <button id="show-places" data-sidebar-tab="places" type="button" aria-controls="places-panel" aria-pressed="false" hidden>Places</button>
+        <button id="show-customize" data-sidebar-tab="customize" type="button" aria-controls="customize-panel" aria-pressed="false">Customize</button>
+      </nav>
+      <section id="layer-panel" aria-label="Map layers">
+        <div class="base-map-heading">
+          <h3 class="sidebar-section-title">Base map</h3>
+          <button id="fit" type="button">Fit map</button>
+        </div>
+        <div class="layer-presets" aria-label="Base maps">
+          <button type="button" data-preset="native" aria-pressed="true"><canvas aria-hidden="true" width="120" height="72"></canvas><span>Pause map</span></button>
+          <button type="button" data-preset="photo" aria-pressed="false"><canvas aria-hidden="true" width="120" height="72"></canvas><span>Satellite</span></button>
+          <button type="button" data-preset="height" aria-pressed="false"><canvas aria-hidden="true" width="120" height="72"></canvas><span>Elevation</span></button>
+        </div>
+        <div id="layers"></div>
+        <details class="sidebar-details">
+          <summary>More layers</summary>
+          <div id="more-layers"></div>
+        </details>
+        <details class="sidebar-details">
+          <summary>Terrain appearance</summary>
+          <div class="layer-camera">
+            <button id="show-terrain" type="button" aria-pressed="false" disabled>3D</button>
+            <button id="reset-angle" type="button">Reset angle</button>
+            <label class="terrain-tilt">Tilt <input id="terrain-tilt" type="range" min="0" max="65" step="any" value="0"></label>
+            <label>Relief <select id="terrain-relief">
+              <option value="1">1×</option><option value="3" selected>3×</option><option value="6">6×</option>
+            </select></label>
+            <label class="water-control"><input id="terrain-water" type="checkbox" checked> Water effects</label>
+          </div>
+        </details>
+        <details id="sidebar-coordinates" class="sidebar-details" hidden>
+          <summary>Go to coordinates</summary>
+          <form id="go-to-cell">
+            <label for="cell-search">Map cell</label>
+            <div class="input-row"><input id="cell-search" placeholder="East, north" spellcheck="false" autocomplete="off"><button type="submit">Go</button></div>
+          </form>
+        </details>
+        <details id="sidebar-inspection" class="sidebar-details" hidden>
+          <summary>Tile inspection</summary>
+          <section class="inspector" aria-label="Selected cell">
+            <button id="show-markers" type="button" aria-pressed="false">Show tile gaps</button>
+            <h3 id="selection">Select a cell</h3>
+            <p id="selection-description" class="subtle">Click the map to select a cell.</p>
+            <button id="load-imagery" type="button">Load satellite tiles</button>
+            <details id="source-details" hidden><summary>Tile source</summary><pre id="provenance"></pre></details>
+            <div id="edit-tools" hidden>
+              <div class="actions">
+                <button id="place" class="primary" type="button" disabled>Place preview</button>
+                <button id="remove" type="button" disabled>Remove fill</button>
+                <button id="undo" type="button" disabled>Undo</button>
+              </div>
+              <div class="actions candidate-tabs">
+                <button id="browse" type="button">Browse tiles</button>
+                <button id="match" type="button">Match edges / sketch</button>
+                <button id="sketch" type="button" aria-pressed="false">Sketch</button>
+              </div>
+              <div id="sketch-tools" class="actions" hidden>
+                <label for="sketch-mode">Stroke</label>
+                <select id="sketch-mode"><option value="shape">Shape</option><option value="color">Color</option></select>
+                <input id="ink" type="color" value="#ff91b1" aria-label="Brush color">
+                <button id="sample" type="button" aria-pressed="false">Sample color</button>
+                <button id="clear-sketch" type="button">Clear</button>
+              </div>
+              <p id="match-status" class="subtle" role="status"></p>
+              <div id="gallery" class="gallery" aria-label="Candidate textures"></div>
+            </div>
+          </section>
+          <div class="actions"><button id="import-edits" type="button">Import edits</button></div>
+          <details class="advanced">
+            <summary>Texture lookup</summary>
+            <form id="find">
+              <label for="texture-search">Find a texture ID</label>
+              <div class="input-row"><input id="texture-search" placeholder="0x…" spellcheck="false" autocomplete="off"><button type="submit">Go</button></div>
+            </form>
+          </details>
+        </details>
+        <details id="sidebar-files" class="sidebar-details" hidden>
+          <summary>Files and saved index</summary>
+          <h3 id="counts"></h3>
+          <p id="import-stats" class="subtle" role="status"></p>
+          <p id="fps-requirement" class="subtle" role="status">Add the matching Xbox Series executable.</p>
+          <p id="world-index-size" class="subtle" role="status" hidden></p>
+          <button id="choose-world-index" type="button">Use saved world index</button>
+          <input id="world-index-file" type="file" accept=".terrain-index" hidden>
+          <details id="file-warnings" hidden><summary id="file-warning-title">Optional inputs</summary><ul id="optional-issues"></ul></details>
+        </details>
+      </section>
+      <section id="places-panel" aria-label="Starting points" hidden>
+        <h3 class="sidebar-section-title">Starting points</h3>
+        <div class="place-buttons">
+          <button id="show-street" type="button">Roadside tunnel<span>Start outside, near a tunnel.</span></button>
+          <button id="walk-karst" type="button">Selkie Hole caves<span>Start inside the Karst tunnel at Emerald Springs.</span></button>
+        </div>
+      </section>
+      <section id="customize-panel" aria-label="Customize the sidebar" hidden>
+        <h3 class="sidebar-section-title">Show in the sidebar</h3>
+        <label class="sidebar-option">Places <input id="pref-places" type="checkbox" role="switch"></label>
+        <label class="sidebar-option">Go to coordinates <input id="pref-coordinates" type="checkbox" role="switch"></label>
+        <label class="sidebar-option">Tile inspection and gaps <input id="pref-inspection" type="checkbox" role="switch"></label>
+        <label class="sidebar-option">Files and saved index <input id="pref-files" type="checkbox" role="switch"></label>
+        <h3 class="sidebar-section-title customize-explore">Show while exploring</h3>
+        <label class="sidebar-option">FPS chart <input id="pref-fps" type="checkbox" role="switch"></label>
+        <p class="subtle">Preferences stay in this browser.</p>
+        <button id="change-files" type="button">Change files</button>
+      </section>
+      <p id="notice" role="status"></p>
+    </aside>
+    <span id="map-road-name" class="location-chip" hidden></span>
+    <footer class="map-status"><span id="position"></span><span id="scale"></span><span id="terrain-status" role="status" hidden></span></footer>
+    <aside class="load-overlay" id="load-overlay" aria-labelledby="load-title" hidden>
+      <h2 id="load-title">Loading</h2>
+      <ul id="load-jobs"></ul>
+    </aside>
+  </main>
+  <dialog id="street-view" aria-labelledby="street-title">
+    <header>
+      <h2 id="street-title">Explore</h2>
+      <button id="toggle-street-sidebar" type="button" aria-controls="street-sidebar" aria-expanded="false">Sidebar</button>
+      <button id="street-close" type="button">Map <kbd>Esc</kbd></button>
+    </header>
+    <div class="street-stage" id="street-loading-host">
+      <canvas id="street-canvas" tabindex="0" aria-label="First-person view of recovered gameplay geometry"></canvas>
+      <aside id="street-sidebar" aria-label="Explore settings" hidden>
+        <h3>Explore settings</h3>
+        <details class="street-help">
+          <summary>Controls</summary>
+          <p>WASD to move · Shift to run · Space to jump · Double-tap Space to toggle flight.<br>
+            While flying, Space goes up, Shift goes down, and scrolling changes speed. Drag or use arrows to look.</p>
+        </details>
+        <button id="street-flight" type="button" aria-pressed="false" disabled>Flight mode</button>
+        <button id="street-lighting" type="button" aria-pressed="false" aria-controls="street-clock street-clouds">Lighting</button>
+        <label id="street-clock" hidden>Time of day <output id="street-time-label" for="street-time">16:30</output>
+          <input id="street-time" type="range" min="0" max="1439" step="5" value="990" aria-label="Time of day" aria-valuetext="16:30">
+        </label>
+        <label id="street-clouds" hidden>Cloud cover <output id="street-cloud-label" for="street-cloud-cover">55%</output>
+          <input id="street-cloud-cover" type="range" min="0" max="100" step="5" value="55" aria-label="Cloud cover" aria-valuetext="55 percent">
+        </label>
+        <button id="street-reset" type="button" disabled>Reset view</button>
+        <label class="street-fps-option"><input id="street-show-fps" type="checkbox" checked> Show FPS chart</label>
+        <button id="street-navigation" type="button" aria-pressed="false" hidden>Navigation</button>
+        <button id="street-go-to" type="button" aria-expanded="false" aria-controls="street-destination" disabled>Go to XYZ</button>
+      </aside>
+      <span id="street-road-name" class="location-chip" hidden></span>
+      <aside id="street-fps" class="street-fps" aria-label="Frame rate">
+        <span id="street-fps-idle" hidden>Idle</span>
+      </aside>
+      <form id="street-destination" hidden>
+        <label for="street-xyz">X, Y, Z, heading°, pitch°, vertical FOV°</label>
+        <input id="street-xyz" value="-2312.9, 758.7, 2.4" required autocomplete="off" spellcheck="false">
+        <button class="primary" type="submit">Go</button>
+      </form>
+      <div class="street-minimap">
+        <canvas id="street-minimap" width="320" height="320" role="img" aria-label="North-up minimap centered on your position"></canvas>
+        <span class="street-minimap-north" aria-hidden="true">N</span>
+        <span id="street-minimap-marker" aria-hidden="true"></span>
+      </div>
+    </div>
+    <footer>
+      <span id="street-status" role="status"></span>
+      <span id="street-bearing" aria-label="Heading from north"></span>
+      <button id="street-copy-view" type="button" title="Copy coordinates, heading and pitch" disabled>Copy view</button>
+      <span id="street-source">Local meshes · Viewer materials</span>
+    </footer>
+  </dialog>
+  <section id="landing" class="landing" aria-labelledby="landing-title">
+    <div class="sunset" aria-hidden="true"><div class="sun"></div><div class="water"></div></div>
+    <div class="intro">
+      <div class="hero">
+        <h1 id="landing-title"><span>Leonida</span> <span>Unfolded</span></h1>
+        <p class="compatibility">Tested with Xbox Series v1.0.2.1.</p>
+      </div>
+      <div class="onboarding">
+        <div id="drop" class="drop-zone">
+          <div class="folder-icon" aria-hidden="true"></div>
+          <h2>Open your game folder</h2>
+          <p>Use files from your own lawfully obtained copy that you are authorized to use. The viewer opens in 3D Pause map mode. Choose or drop the folder that contains <code>game_scarlett_master.exe</code>, <code>common.rpf</code>, and <code>levels.rpf</code>.</p>
+          <div class="actions">
+            <button id="choose-folder" class="primary" type="button">Choose game folder</button>
+            <button id="choose-files" type="button">Choose individual files</button>
+          </div>
+          <div id="progress-panel" hidden>
+            <label for="progress" id="progress-label">Checking game files</label>
+            <progress id="progress"></progress>
+          </div>
+          <p id="import-error" role="alert" hidden></p>
+          <ul id="issues" hidden></ul>
+        </div>
+        <div class="local-note">
+          <h3>Your files stay on this device</h3>
+          <p>Your browser may show an “Upload” button when you pick a folder. It gives the viewer permission to read the files from disk. The map is built in your browser, and your game files are never sent to a server.</p>
+        </div>
+        <p class="compatibility">Independent map viewer. Unaffiliated with Rockstar Games and Take-Two Interactive. <a href="https://www.rockstargames.com/VI/out-now">Buy GTA VI from Rockstar’s official game page</a>.</p>
+        <p class="compatibility"><a href="./demo.html">Try the sample island</a> · <a href="./SOURCE.txt">Source and build instructions</a></p>
+        <details class="requirements" id="requirements"><summary>Required and optional files</summary><ul id="file-list"></ul></details>
+      </div>
+    </div>
+  </section>
+  <input id="folder" type="file" webkitdirectory multiple hidden>
+  <input id="files" type="file" multiple accept=".rpf,.ttpf,.exe" hidden>
+  <input id="edits" type="file" accept=".json,application/json" hidden>
+</body>
+</html>

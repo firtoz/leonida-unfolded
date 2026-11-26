@@ -1,0 +1,539 @@
+{
+  "build": "xbox-1.0.2.1",
+  "files": [
+    {
+      "path": "levels.rpf",
+      "size": 76155065056,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "8db2d271d98d095769884b2990b8c2c128edfd028a96896b3623d85541932bc2"
+        ],
+        [
+          31678996480,
+          "f6e2c353b58fff2d18cc168e8da033fd176b0d241246d924cfd5015179a7eb8e"
+        ],
+        [
+          76155060960,
+          "0e903a5f793dda84916f87160932330478429bb5d3170cc28e58bce5600f57cd"
+        ]
+      ]
+    },
+    {
+      "path": "common.rpf",
+      "size": 6642192,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "c040051389977be241d0602db97e6015daf7791a0cfa0cc39c8de982e92d8baf"
+        ],
+        [
+          3317760,
+          "516ddbaffeb370a720799ae5f9b30e5db6790fa90458e01a1682132b185e9b03"
+        ],
+        [
+          6638096,
+          "fe09aa02e47c5afe1246b0355dddf11fe4caa60398ad05d71276bde817a2d1e9"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_0_7.ttpf",
+      "size": 2775084288,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "3b5b612fc6e7e25e6e65cfbaa631507ec6243ee2190f1b2d6d584d1df80812bf"
+        ],
+        [
+          1387540480,
+          "2f0ef2ba1db11ee919830e322a3cf80efbac7c2ce36a7277b76608c1b080d96f"
+        ],
+        [
+          2775080192,
+          "5cf7bab07449bbb8e31f11d08fb60db8a23a41d26d44d62b1d8c6ac6673b68d3"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_1_7.ttpf",
+      "size": 2739444480,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "532bffcf50cd5c567a24d4bbc8928a7543fea66e1fdfc10837f5231856c60cff"
+        ],
+        [
+          1369718784,
+          "19e8cc93f9e6f136f01dbdaadd159cdc45ba55cbbcb4f65754b8b84fe6603a21"
+        ],
+        [
+          2739440384,
+          "71b183dcbcbf313c00d33a700f6aebf1a46b1fd7e0501d450a7b812976e2abb1"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_2_7.ttpf",
+      "size": 2780145920,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "394146b014b88a4c9eb89d61deecba7461fa10d05977daecb4a0c6a7ead28f61"
+        ],
+        [
+          1390071808,
+          "c5a5b0834661bc5a6cacab79f490b89e3953c92e94b154815ea6e281e866395c"
+        ],
+        [
+          2780141824,
+          "6cb2089c9c3812116f7eedc3ffa1646fd8b28b4b23c45a095557b639eefe24a3"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_3_7.ttpf",
+      "size": 2718679808,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "a3ffce26830c97c35ee9ec3a0eb8091a6b3d4b8e5cc8e1170561b6053e582881"
+        ],
+        [
+          1359339520,
+          "a2e6c196520dad37678b4949b3e822264739c582ae04ee3d962f3f2da5504c3c"
+        ],
+        [
+          2718675712,
+          "052fb3ec7f7d094afaaac5d572b2f571e373a9ab97ffa957ccb51f47fec3f0de"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_4_7.ttpf",
+      "size": 2741339648,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "4dfdc0672d14d86d0cd11f48cc93464c16790f37240000ea8f9d73be8628f435"
+        ],
+        [
+          1370669056,
+          "aa28e43d045582fd03d9c358e8882d85b45f0261cea659305a65ab2404d6273b"
+        ],
+        [
+          2741335552,
+          "592ebdadc0bec4501355338257c3f0f3415217914854167cf8f57b58ffd786bf"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_5_7.ttpf",
+      "size": 2674379008,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "75ee67f650d1ea9c04e104b01068b91903f394f6e91b9ccbe057c77ceb2518fd"
+        ],
+        [
+          1337188352,
+          "a524b6390b4f2df462c3c83c3f2a481e776504a3ff027bd7841319a03caf14fb"
+        ],
+        [
+          2674374912,
+          "66315cb735d2d8fe20282ba1986302f123dce262352d530aa1ef7eb1e74a1510"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_6_7.ttpf",
+      "size": 2688808960,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "3613653d98a69d1982d5dc81683ac22c6f265cb7084c943879cd7e318841d68d"
+        ],
+        [
+          1344401408,
+          "c28dacf7e7ae7a9c8ce4587e7bc0b45acc123d8d2f162351e62e3fea3fa7be79"
+        ],
+        [
+          2688804864,
+          "0513edceec889f05691d566cce4e4afaf4703d280ee825c3a86fa5393a7c8817"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_7_7.ttpf",
+      "size": 2828296704,
+      "required": true,
+      "probes": [
+        [
+          0,
+          "5a1f7a7e6a4a35b992c5f24840d7016f8afd7de7bc428a62801f9657880b0434"
+        ],
+        [
+          1414148096,
+          "f0282193a025b7ecf80f36de66c92d200fa5e0c1105c60279f0b97e9e858e04e"
+        ],
+        [
+          2828292608,
+          "329157940da377103d7cb3a3176556aff6a4baf44cf86dfb3ef25d5c743f9c01"
+        ]
+      ]
+    },
+    {
+      "path": "textures.rpf",
+      "size": 192585024,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "032cd08a1eb43490ffd9740238ff814df6f7d41fe7875a8250f7847ba42f929c"
+        ],
+        [
+          96288768,
+          "64d6de71f3b7f2ae9b3436859ab14e019d9ac8ec7d205ddea73c00f0d855a3d2"
+        ],
+        [
+          192580928,
+          "730605635f92ac71773e323b0efb9d7f540be5d0af4c9c9dfeadc300b7159362"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_image_based_0_1.ttpf",
+      "size": 1946070528,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "f3b06877f08d219a26b90393332f5eff182e661ea62f7d874c855bb275a51d6b"
+        ],
+        [
+          973033472,
+          "ddadb7a7209649709e49e857af4e53d3c69955f7c14363b85bfe1e3c90a2afd8"
+        ],
+        [
+          1946066432,
+          "69a2e5278e208a745144e45b8155cf4b25168df997720c0f27946ec2ea688f24"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/terrain/ttdb_terrain_image_based_1_1.ttpf",
+      "size": 1890978048,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "ab94006a7264a61fcb6acb8afe815de2bdef34d1377c0a059dd4c2bc089f01fb"
+        ],
+        [
+          945487872,
+          "3506f4b531b8b8d06c2c0a3046687cc540c3320b995918c1b74d7ecfb5449ed0"
+        ],
+        [
+          1890973952,
+          "b4bde4b88542dff0fd1450b12fb492efcaaf5b3c06375fbe08f6a556556aa18b"
+        ]
+      ]
+    },
+    {
+      "path": "data.rpf",
+      "size": 481544304,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "f5e5bd896fdc782f183a31136974b557bd262abbb833d5666213c057ba63bf74"
+        ],
+        [
+          450113536,
+          "a20fe9c59375a734e5c929ea262f41b8b84d71ca4163a566139aba483c3b5a2e"
+        ],
+        [
+          481540208,
+          "cda7d71825483941d596fa7b87c27fcfcfd34d77b4893ed60c468241b020e1a1"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/weapons/ttdb_weapons.ttpf",
+      "size": 1421518080,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "8286abe9af2ce48a96f393f39182a6e7024de8bbafc94486d1dd79cfd11250c3"
+        ],
+        [
+          336388864,
+          "eb7679852b899d23bf61b57040ae2a4b18dd6feb43b3f6c7f1152327ca2eea38"
+        ],
+        [
+          927973376,
+          "d317ea498dfcae17f5045825b8d52f36439090873f254dbf1f3bbb2324cbd21a"
+        ]
+      ]
+    }
+  ],
+  "texturePacks": [
+    {
+      "path": "data/ttdb/maps/ttdb_maps_0_7.ttpf",
+      "size": 1765679616,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "cbf2dd2300d8e1e4fde2fbac79500c96afd8972da71f5520290798e461131d66"
+        ],
+        [
+          882839552,
+          "8feafb340ebc5bdb8eaf1d6355c0a583d3330929a494d82dfb7f922eddb31a47"
+        ],
+        [
+          1765675520,
+          "a2ae96d67fd0dab7d1eccff8bc59ed8e2816e43c4142da706e89e2924e7fe993"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_1_7.ttpf",
+      "size": 1746187776,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "e81d4ec46fc84af5798b7de86d0bc52ae9e4724a80271072d674b52125649ed1"
+        ],
+        [
+          873091072,
+          "727eb9f9719a062206de39d8467f8a0ee6a99f71606a35d832f2a723d61e1413"
+        ],
+        [
+          1746183680,
+          "d9e6c3571421bb845acbf21b756b2b0fd55615c69bdada6c9acd9672d734ccf0"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_2_7.ttpf",
+      "size": 1818806528,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "c352bae8dd6da48776f8065080b2dc34732104c9a9551fdf8d572856c44452ca"
+        ],
+        [
+          909402112,
+          "8a53f450f0c659fa283982b5a7f7f66ccaca33dd7036ad81065e77e772328dd8"
+        ],
+        [
+          1818802432,
+          "fd898aa59f9ad54ccd122a35b2b170fcf7d7ba839eeb3ea9c130b9dc850ecb75"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_3_7.ttpf",
+      "size": 1787349760,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "81bfb9ce46c4713d027b6ebcfebbc30b13a6dc8a1480405e73abbf624c34085b"
+        ],
+        [
+          893673472,
+          "38381c84f5c5b0a7f8c4839d9717d70fceae9ea887f309ac59c429924aba0a90"
+        ],
+        [
+          1787345664,
+          "99fe772c8550efac9154e6c3610dd6bc7fc9233a7899d5c3210b48eaa8dbc544"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_4_7.ttpf",
+      "size": 1791670784,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "9a96d9e93197e6780526155ed9a42ad32d94cc232dee3dcd9f90e2ed7e97a54f"
+        ],
+        [
+          895832064,
+          "29bdcf3d06e0b6f52ca6e947717d798ff0f0c48c20f292c7fefb1f857c28e1dc"
+        ],
+        [
+          1791666688,
+          "193a60be488fd8c6ca91aecf5fa39b2cced39846526e4fa413aba907afa1c941"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_5_7.ttpf",
+      "size": 1840029440,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "dea566c28e6152a435d5e140da918a17d532b020678f71f9a294867e50dd8ba6"
+        ],
+        [
+          920010752,
+          "50c42a298e50c2c968d6454c190569a9eedbc572699cb81e820678135a7151f6"
+        ],
+        [
+          1840025344,
+          "c3dca2521866dc23049a05b949b20e2956201399bfcde5ef7cf2275a627066e0"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_6_7.ttpf",
+      "size": 1745923072,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "bd09376350052195a5d651429598f87fd14da136e4c4196d36a26df916a00124"
+        ],
+        [
+          872960000,
+          "ad3cc6c7dfd09efc9a8a62401677644a636d9af4727f0d279fee215741d03aad"
+        ],
+        [
+          1745918976,
+          "c6a430da6c287db9bda0ce01ceb7aa8fc5e5e51b519192856c87fa06d3741ea7"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/maps/ttdb_maps_7_7.ttpf",
+      "size": 1755748608,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "37ae0d2ae00151d7891f127184614bc233e350350cdc86b381940ccf58c5775a"
+        ],
+        [
+          877871104,
+          "a4ae3b4767bd2971d92a557f7efc6169cd86edc3022f942797ec9bf024379028"
+        ],
+        [
+          1755744512,
+          "437008bf45d35e11dd2aa2162a3752ffa295d3b218f4da806c94d263dd8a5450"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/props/ttdb_props_0_3.ttpf",
+      "size": 1304458240,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "537324b1a295ea6cd6560e1de4f8b8866eb63c55a538bbca2fcdf72bb2c42ff3"
+        ],
+        [
+          652226560,
+          "186d534548c30afe01f479386a76df2de54fdd8160b9b7ef8f8786f67bb58605"
+        ],
+        [
+          1304454144,
+          "d5d9dba896f009c5bfe9e7ed97d2cf764f7bb863935caa800f3dbee43b6a2b54"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/props/ttdb_props_1_3.ttpf",
+      "size": 1256908800,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "80661732f2d71b6e5d1bc24ee6753a76b4950280b9694c5fe774ed388c174306"
+        ],
+        [
+          628453376,
+          "615c2033a549cf15faf90b27654054cd3b09848b2928ce53ef77f16fe409ba58"
+        ],
+        [
+          1256904704,
+          "69d2b78c8be9c558b729bc2f5a1f250486d273433576950c2520f3a689e4c9c2"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/props/ttdb_props_2_3.ttpf",
+      "size": 1239990784,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "85befe18b13ac520688193d5de1ed9cafc8683c8bd2b79e7e08af4f092a4a030"
+        ],
+        [
+          619995136,
+          "cd55022e7c4f58909f01b9246ded625e3fce8895ee1be45c30a9f9679e536e8b"
+        ],
+        [
+          1239986688,
+          "3c5766b6fd093831021b3c6412289fb574aabac63b9056e8b7b44e976fa4386c"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/props/ttdb_props_3_3.ttpf",
+      "size": 1328911616,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "62aaa255ce73ab69265632fa1c23e3f7ea01da20c9d4a101aeefd7cfb7cb40f6"
+        ],
+        [
+          664453120,
+          "80475ba82435190c2adb3004455a009b42403d0e35471242decc33c2663c2e5c"
+        ],
+        [
+          1328907520,
+          "6169b87a13eab9ae3bcb88a4f07afdcfaa7b799185d0ba287d59ce4c6430feeb"
+        ]
+      ]
+    },
+    {
+      "path": "data/ttdb/interiors/ttdb_interiors_1_3.ttpf",
+      "size": 898113536,
+      "required": false,
+      "probes": [
+        [
+          0,
+          "bb47d9cdf801e96850bd5fd6ed25894c6e41f261592132f762af797438bf9c26"
+        ],
+        [
+          449056768,
+          "e32e12af69102009ad43bc4ecbb6e8f532f74ea1147357729e2f0472b0e0bf25"
+        ],
+        [
+          898109440,
+          "6d5e1adb570956225bdb65d665ce60e8ad4bf36a79ce5a898032d227598c76fb"
+        ]
+      ]
+    }
+  ]
+}
