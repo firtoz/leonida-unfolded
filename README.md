@@ -8,7 +8,7 @@ Choose **Try the sample island** on the viewer’s opening page. The demo genera
 
 Leonida Unfolded is an independent, read-only browser tool for exploring and studying game maps. Use supported Xbox Series files from your own lawfully obtained copy of GTA VI that you are authorized to use with the viewer. Your browser reads the selected files locally and leaves them unchanged. The viewer renders the scene independently and never runs the game.
 
-The release contains no Rockstar game files or keys. Leonida Unfolded is unaffiliated with Rockstar Games and Take-Two Interactive.
+The release contains no Rockstar game files or keys. Leonida Unfolded is unaffiliated with Rockstar Games and Take-Two Interactive. See the [legal notice](LEGAL.md) for how the viewer uses archive directories and local data.
 
 ## Open a game folder
 
@@ -24,24 +24,34 @@ Enable **Road names** in **Layers** to label roads as you zoom in and show the n
 
 If a supported version fails, open an issue with the game version, viewer version, browser version, reproduction steps, and sanitized error. If you have a different lawfully obtained version, you can request compatibility. Leave game files, keys and download links out of reports.
 
-## Build from source
+## Run locally
 
-Install Bun, then run:
+You need Bun to work from source. CI uses Bun 1.4.4. [Install Bun](https://bun.com/docs/installation)
+
+From the repository root, install dependencies and start the Vite development server.
 
 ```sh
 bun install --frozen-lockfile
+bun run dev
+```
+
+Open the URL printed by Vite. For a production build or to rehearse the GitHub Pages deployment, run:
+
+```sh
 bun run check
 bun test
 bun run build
 bun run preview
 ```
 
-Open the URL printed by the preview server. The browser build is in `dist/` and includes third-party notices. See [build notes](docs/build.md) for decoder sources and release attribution.
+The browser build is in `dist/`. Its license, third-party notices, and source links ship with the viewer. See [build notes](docs/build.md) for decoder sources and release attribution.
 
 The viewer code is licensed under [GPL-3.0-only](LICENSE). The bundled dependencies retain their own licenses.
 
 ## Contributing
 
 Read the [contribution guidelines](CONTRIBUTING.md) before opening an issue or submitting a patch. They cover what can go into documentation, commits, reports, and pull requests.
+
+See the [performance and fidelity TODO](TODO.md) for investigations you can assign independently. Use [Resource Queue](https://github.com/firtoz/resource-queue) to coordinate benchmark runs from multiple agents on one machine.
 
 Maintained by [firtoz](https://github.com/firtoz).

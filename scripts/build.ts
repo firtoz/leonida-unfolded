@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, copyFile, readFile, readdir, rm, writeFile } from "node
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
-const staticFiles=["index.html","styles.css","demo.html","demo.css","explorer.webp"];
+const staticFiles=["index.html","styles.css","demo.html","demo.css","explorer.webp","LICENSE"];
 const dist = resolve(Bun.env.TERRAIN_ATLAS_DIST??join(import.meta.dir,"../dist"));
 const out = await mkdtemp(join(tmpdir(),"terrain-atlas-build-"));
 try {
