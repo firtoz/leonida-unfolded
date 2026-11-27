@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {once} from "node:events";
 import {mkdir, mkdtemp, rename, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {homedir} from "node:os";
 import {join, resolve} from "node:path";
 import type {Writable} from "node:stream";
 
@@ -36,6 +36,8 @@ const trials=Number(Bun.env.FPS_REPEATS??2);
 const settleTimeout=Number(Bun.env.FPS_SETTLE_TIMEOUT_MS??100_000);
 const game=Bun.env.TERRAIN_TEST_GAME_FOLDER;
 const output=Bun.env.FPS_RESULTS??"";
+const profileRoot=resolve(Bun.env.FPS_PROFILE_ROOT??join(homedir(),".cache"));
+const expectedGpu=Bun.env.FPS_EXPECT_GPU;
 if(!game||!output||!selected.length||selected.some(scene=>!Object.hasOwn(scenes,scene))||
   !actions.length||actions.some(mode=>!modes.includes(mode))||profileMode&&!actions.includes(profileMode)||onePixelRaster&&!profileMode||
   !["gl","vulkan"].includes(angleBackend)||
@@ -45,6 +47,7 @@ const build=resolve(Bun.env.FPS_BUILD??join(import.meta.dir,"../dist"));
 const revision=Bun.env.FPS_REVISION??Bun.spawnSync(["git","rev-parse","HEAD"],{cwd:join(import.meta.dir,"..")}).stdout.toString().trim();
 assert(await Bun.file(join(build,"index.html")).exists(),"Build the benchmark revision first.");
 await mkdir(output,{recursive:true});
+await mkdir(profileRoot,{recursive:true});
 const server=Bun.serve({hostname:"127.0.0.1",port:Number(Bun.env.FPS_PORT??4394),fetch(request){
   const path=new URL(request.url).pathname;
   const name=path.slice(1)||"index.html";
@@ -56,6 +59,18 @@ const viewport={width:1120,height:720,deviceScaleFactor:1,mobile:false};
 const delay=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms));
 
 type CastFrame={data:string;metadata:{timestamp?:number};sessionId:number};
+class HardwareWebGLError extends Error {}
+
+function requireHardwareRenderer(renderer:string|null){
+  if(!renderer||renderer==="unavailable"||/swiftshader|llvmpipe|softpipe|lavapipe|software rasterizer|basic render driver/i.test(renderer)){
+    throw new HardwareWebGLError(`The FPS benchmark needs hardware WebGL 2. Renderer: ${renderer??"unavailable"}. Check GPU access and FPS_ANGLE_BACKEND.`);
+  }
+  if(expectedGpu&&!renderer.toLowerCase().includes(expectedGpu.toLowerCase())){
+    throw new HardwareWebGLError(`Expected the FPS canvas to use ${expectedGpu}, but the browser reported ${renderer}.`);
+  }
+  return renderer;
+}
+
 class Browser {
   private serial=0;
   private connected="";
@@ -68,7 +83,7 @@ class Browser {
   constructor(profile:string){
     this.chrome=spawn(Bun.env.TERRAIN_TEST_BROWSER??"brave",[
       "--headless","--remote-debugging-pipe","--no-first-run","--disable-background-networking","--disable-extensions",
-      "--disable-dev-shm-usage","--use-gl=angle",`--use-angle=${angleBackend}`,
+      "--disable-dev-shm-usage","--disable-software-rasterizer","--use-gl=angle",`--use-angle=${angleBackend}`,
       ...(softwareCompositor?["--disable-gpu-compositing"]:[]),
       `--user-data-dir=${profile}`,"about:blank",
     ],{stdio:["ignore","ignore","inherit","pipe","pipe"]});
@@ -129,10 +144,28 @@ class Browser {
     this.connected=(await this.call("Target.attachToTarget",{targetId:target.targetId,flatten:true},true)).sessionId;
     await this.call("Page.enable");
     await this.call("Runtime.enable");
+    const gpuTimeout=setTimeout(()=>this.chrome.kill(),15_000);
+    let renderer:string|null;
+    try{
+      renderer=await this.eval<string|null>(`(()=>{
+        const canvas=document.createElement("canvas");
+        canvas.width=canvas.height=1;
+        const gl=canvas.getContext("webgl2",{alpha:false,antialias:false,stencil:true,powerPreference:"high-performance"});
+        const debug=gl?.getExtension("WEBGL_debug_renderer_info");
+        const name=debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):null;
+        gl?.getExtension("WEBGL_lose_context")?.loseContext();
+        return name;
+      })()`);
+    }catch(error){
+      throw new HardwareWebGLError("The browser failed its hardware WebGL 2 startup check.",{cause:error});
+    }finally{clearTimeout(gpuTimeout);}
+    requireHardwareRenderer(renderer);
     await this.call("Emulation.setDeviceMetricsOverride",viewport);
     await this.call("Page.addScriptToEvaluateOnNewDocument",{source:
       `(${observePage.toString()})(${Boolean(profileMode)},${onePixelRaster},${lockRenderScale},${profileGeometry})`});
-    await this.call("Page.navigate",{url:server.url.href});
+    const url=new URL(server.url);
+    url.searchParams.set("skipExploreControls","1");
+    await this.call("Page.navigate",{url:url.href});
     await this.wait("document.readyState==='complete'");
     if(Bun.env.FPS_VERIFY_CHART==="1"){
       assert(await this.eval(`document.querySelector("#street-show-fps").checked&&!document.querySelector("#street-fps").hidden`));
@@ -162,6 +195,7 @@ class Browser {
       break;
     }
     await this.wait('document.querySelector("#street-view").open&&!document.querySelector("#street-go-to").disabled');
+    // Benchmarks can still target a build that predates the query flag.
     await this.eval('if(document.querySelector("#street-controls")?.open)document.querySelector("#street-controls-close").click()');
   }
   async key(code:"ArrowRight"|"KeyW"|"Space",down:boolean){
@@ -578,20 +612,17 @@ const saveReport=()=>writeFile(join(output,"report.json"),JSON.stringify({revisi
   angleBackend,onePixelRaster,profileGeometry,lockRenderScale,minimumVisibleChunks,results,failures},null,2));
 try{
   for(const scene of selected){
-    const profile=await mkdtemp(join(tmpdir(),"terrain-atlas-benchmark-"));
+    const profile=await mkdtemp(join(profileRoot,"terrain-atlas-benchmark-"));
     const browser=new Browser(profile);
     try{
       await browser.open();
       await browser.enter();
-      const activeRenderer=await browser.wait<string>(`(()=>{
+      const activeRenderer=requireHardwareRenderer(await browser.wait<string>(`(()=>{
         const [gl]=window.fpsBenchmark.contexts;
         if(!gl)return false;
         const debug=gl.getExtension("WEBGL_debug_renderer_info");
-        return debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):"Renderer unavailable";
-      })()`);
-      const expected=Bun.env.FPS_EXPECT_GPU;
-      if(expected)assert(activeRenderer.toLowerCase().includes(expected.toLowerCase()),
-        `Expected the FPS canvas to use ${expected}, but Brave reported ${activeRenderer}`);
+        return debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):"unavailable";
+      })()`));
       console.log(JSON.stringify({scene,renderer:activeRenderer}));
       await browser.eval(`document.querySelector("#street-time").value="870";
         document.querySelector("#street-cloud-cover").value="35";
@@ -636,6 +667,7 @@ try{
       failures.push({scene,message});
       console.error(`${scene}: ${message}`);
       await saveReport();
+      if(error instanceof HardwareWebGLError)break;
     }finally{
       await browser.close();
       await rm(profile,{recursive:true,force:true,maxRetries:6,retryDelay:100});

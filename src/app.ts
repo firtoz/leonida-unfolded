@@ -41,6 +41,7 @@ const streetDialog=get<HTMLDialogElement>("street-view");
 const streetControls=get<HTMLDialogElement>("street-controls");
 const streetControlsButton=button("street-controls-open");
 const streetControlsKey="terrain-atlas.explore-controls-seen";
+const skipExploreControls=new URLSearchParams(location.search).get("skipExploreControls")==="1";
 let streetControlsSeen=false;
 let controlsCollapse:HTMLElement|undefined;
 try{streetControlsSeen=localStorage.getItem(streetControlsKey)==="true";}catch{}
@@ -1650,7 +1651,7 @@ function openStreetWorld(origin:[number,number,number],yaw?:number,anchor?:Stree
   streetStatus.textContent="Reading gameplay terrain";
   resetStreetRoadName();
   mountStreet();
-  if(street&&!streetControlsSeen&&!streetControls.open)showStreetControls();
+  if(street&&!skipExploreControls&&!streetControlsSeen&&!streetControls.open)showStreetControls();
 }
 
 function showStreetControls(){

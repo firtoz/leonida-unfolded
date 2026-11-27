@@ -289,7 +289,7 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
   }
   async function loadTerrainCell(col:number,row:number,source:RegionCell,detail:boolean){
     const id=`${col},${row}`;
-    const key=`terrain-v${detail?40:7}:${Number(withMaterials)}:${id}:${Number(detail)}:native`;
+    const key=`terrain-v${detail?42:7}:${Number(withMaterials)}:${id}:${Number(detail)}:native`;
     const localCache=Math.abs(col-cx)<=1&&Math.abs(row-cy)<=1?assetCache:undefined;
     const saved=await localCache?.get("mesh",key);
     if(saved)return saved;
@@ -1143,6 +1143,7 @@ const layeredGroundEffects=new Set([0x61e09df7,0x0ad54cb9,0x388f8fb6]);
 const singleSidedLandscapeEffects=new Set([0x360e396b,0x27e5c49d,0x0ad54cb9,0x76fcff28]);
 const mixedProjectedGroundEffect=0x6f968246;
 const uv3LandscapeEffect=0x27e5c49d; // standard_uber_4lyr_pxm_hbb_uv3
+const spxUV3LandscapeEffect=0x76fcff28; // standard_uber_4lyr_spx_dm_hbb_uv3
 const fixedUVLandscapeEffect=0xb21f1ba5; // standard_uber_4lyr_pxm_hbb_fixuv1
 const uberGroundEffects=new Set([
   0x4a579bbf, // standard_uber_4lyr_pxm_hbb
@@ -1239,7 +1240,8 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
   if(material<0)return;
   const effect=data.getUint32(material,true);
   const mixedProjected=effect===mixedProjectedGroundEffect&&hasGroundAtlas;
-  if(uberGroundEffects.has(effect)||mixedProjected){
+  const spx=effect===spxUV3LandscapeEffect;
+  if(uberGroundEffects.has(effect)||mixedProjected||spx){
     const parameters=systemReference(data,material+0x20,8+17*8);
     if(vertexWeights||parameters<0||data.getUint8(parameters+1)<17)return;
     // These terrain passes bind the same layer layout despite the extra
@@ -1270,13 +1272,19 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
   const mixedSector=mixedProjected||effect===0x388f8fb6&&(maskUV!==1||selectors.includes(2));
   const localEffect=hasGroundAtlas&&effect===0x388f8fb6&&mixedSector;
   const tintSamplingSupported=tintUV===1&&tintSampling===2;
-  const [vertexFirst,complexVertexTint]=localEffect?vec(0x160):[0,0];
-  const [,tintAlpha,vertexAlpha]=localEffect?vec(0x170):[0,0,0];
+  const insetUV3=hasGroundAtlas&&(effect===uv3LandscapeEffect||spx)&&maskUV===3&&maskSampling===0&&tintSamplingSupported;
+  const [vertexFirst,complexVertexTint]=localEffect?vec(0x160):insetUV3?vec(0x180):[0,0];
+  const [sectorWeight,tintAlpha,vertexAlpha]=localEffect?vec(0x170):insetUV3?vec(0x190):[0,0,0];
+  const nativeUV3Blend=insetUV3&&sectorWeight===0&&complexVertexTint===0&&
+    [vertexFirst,tintAlpha,vertexAlpha].every(value=>value===0||value===1);
+  // Untinted SPX materials use the road pass, which supports their parallax.
+  if(spx&&(!nativeUV3Blend||vec(0x140).every(value=>value===0)))return;
   const nativeLocalBlend=localEffect&&tintSamplingSupported&&
     (maskUV===3&&maskSampling===0||maskUV===1&&maskSampling===1)&&complexVertexTint===0&&
     [vertexFirst,tintAlpha,vertexAlpha].every(value=>value===0||value===1);
+  const nativeBlend=nativeLocalBlend||nativeUV3Blend;
   const projectedDetail=hasGroundAtlas&&(sectorStrip||mixedSector&&!nativeLocalBlend);
-  const vertexBlend=!vertexWeights&&((projectedDetail&&mixedSector)||nativeLocalBlend||mixedLocal||effect===0x4a579bbf||effect===0x61fad45c||effect===uv3LandscapeEffect);
+  const vertexBlend=!vertexWeights&&((projectedDetail&&mixedSector)||nativeBlend||mixedLocal||effect===0x4a579bbf||effect===0x61fad45c||effect===uv3LandscapeEffect);
   if(vertexWeights){
     // Both tunnel variants share this vertex-weighted local blend.
     const [scaleU,scaleV,offsetU,offsetV]=primary;
@@ -1311,7 +1319,7 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     ?{strength,textures:normalKeys.map(key=>terrainTexturePrefix+"normal:"+key)}:undefined;
   let tint:TerrainLayers["tint"];
   const authoredTint=vertexWeights&&tintSampling===1&&(tintUV===1||tintUV===2||tintUV===3);
-  if(!nativeLocalBlend&&!projectedDetail&&(authoredTint||(tintUV===1||effect===uv3LandscapeEffect&&tintUV===3)&&(tintSampling===0||tintSampling===2))&&
+  if(!nativeBlend&&!projectedDetail&&(authoredTint||(tintUV===1||effect===uv3LandscapeEffect&&tintUV===3)&&(tintSampling===0||tintSampling===2))&&
     systemReference(data,buffers+8,0x1a8+tail)===constants){
     const amount=field(0x150),mode=field(0x130),scale=field(0x140);
     const maskAlpha=data.getFloat32(constants+0x1a4+tail,true);
@@ -1323,7 +1331,7 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
         inset:tintSampling===2,maskAlpha:maskAlpha===1,mode,scale,amount};
   }
   let vertexTint:TerrainLayers["vertexTint"];
-  if(!nativeLocalBlend&&!projectedDetail&&systemReference(data,buffers+8,0x1ac)===constants){
+  if(!nativeBlend&&!projectedDetail&&systemReference(data,buffers+8,0x1ac)===constants){
     const [beforeSector,overlay]=field(0x190),maskAlpha=field(0x1a0)[2];
     const mode=field(0x160),scale=field(0x170),amount=field(0x180);
     const sectorMode=field(0x130),sectorAmount=field(0x150);
@@ -1335,9 +1343,9 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     }
   }
   let detail:TerrainLayers["detail"];
-  if(nativeLocalBlend){
-    const mode=vec(0x100),scale=vec(0x110),amount=vec(0x120);
-    const vertexMode=vec(0x130),vertexScale=vec(0x140),vertexAmount=vec(0x150);
+  if(nativeBlend){
+    const mode=field(0x120),scale=field(0x130),amount=field(0x140);
+    const vertexMode=field(0x150),vertexScale=field(0x160),vertexAmount=field(0x170);
     if([...mode,...vertexMode].some(value=>value!==0&&value!==1)||
       [...scale,...vertexScale].some(value=>!Number.isFinite(value)||value<0)||
       [...amount,...vertexAmount].some(value=>!(value>=0&&value<=1)))return;
@@ -1349,6 +1357,8 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     const invertAlpha=mode.map((value,i)=>Number(value===0&&amount[i]>0)) as TerrainLayers["primary"];
     vertexTint={beforeSector:vertexFirst===1,maskAlpha:vertexAlpha===1,invertAlpha,
       mode:vertexMode,scale:vertexScale,amount:vertexAmount};
+  }
+  if(nativeLocalBlend){
     const slots=systemReference(data,material+0x10,7*8);
     const small=systemReference(data,buffers,0x58);
     if(small>=0&&slots>=0&&data.getBigUint64(slots+6*8,true)===0n&&
@@ -1376,7 +1386,7 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
   const secondary=selectors.map(value=>value-1) as TerrainLayers["primary"];
   return {textures,primary:vertexWeights?[128,128,0,0]:primary,heightGain,heightBias,powers,tint,vertexTint,normals,
     vertexWeightUV:vertexWeights?secondary:undefined,layerUV:vertexBlend?secondary:undefined,
-    projectedDetail:projectedDetail?true:undefined,nativeLocalBlend:nativeLocalBlend?true:undefined,detail,vertexBlend:vertexBlend?true:undefined,maskUV:vertexBlend&&maskUV===3?3:undefined};
+    projectedDetail:projectedDetail?true:undefined,nativeLocalBlend:nativeBlend?true:undefined,detail,vertexBlend:vertexBlend?true:undefined,maskUV:vertexBlend&&maskUV===3?3:undefined};
 }
 
 function twoLayerDecal(data:DataView,material:number,packed:string|null):{primary:string;layers:DecalLayers;retroBlend?:number}|undefined{
@@ -2136,8 +2146,8 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       const groundBlend=ground===false&&bucket===2&&(effect===0x42c64b5e||effect===0xec8e6107);
       const fallback=!overlay||groundBlend?groundFallback:undefined;
       const roadMaterial=hasRoadMaterials&&uv&&uv.offset===primaryUV?.offset?roadLayers(data,binding):undefined;
-      const roadEffect=effect===0x360e396b||effect===0x76fcff28;
-      const groundRoad=withColors&&ground===false&&bucket===0&&primaryUV&&roadEffect;
+      const roadEffect=effect===0x360e396b||effect===spxUV3LandscapeEffect;
+      const groundRoad=withColors&&ground===false&&bucket===0&&primaryUV&&roadEffect&&!terrain;
       const drawableName=typeof drawable==="string"?drawable:drawable.name;
       const elevatedRoad=withColors&&ground===undefined&&material===66&&bucket===0&&primaryUV&&effect===0x360e396b&&
         (elevatedRoadDrawable.test(drawableName)||roadBridgeDrawable(drawableName));
