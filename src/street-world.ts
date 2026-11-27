@@ -49,7 +49,7 @@ type CollisionIndex = { buckets:Map<string,Face[]>; wide:Face[]; side:number };
 type SharedGeometry={key:string;vertices:WebGLBuffer;indices:WebGLBuffer;uv?:WebGLBuffer;normals?:WebGLBuffer;
   references:number;bytes:number;visibleFrame:number};
 type Resident = { vao:WebGLVertexArrayObject; vertices:WebGLBuffer; indices:WebGLBuffer; uv?:WebGLBuffer;
-  normals?:WebGLBuffer; terrainColors?:WebGLBuffer; terrainTintUV?:WebGLBuffer; terrainTangents?:WebGLBuffer; terrainSecondaryTangents?:WebGLBuffer; roadUV?:WebGLBuffer; roadWeights?:WebGLBuffer; decalOpacity?:WebGLBuffer; decalBlend?:WebGLBuffer; poses?:WebGLBuffer; instances:number; instanceMode:number; instanceStart:number; count:number; frame:number; bytes:number; shadowMaterials?:string[]; shadowOnly?:true;
+  normals?:WebGLBuffer; terrainColors?:WebGLBuffer; terrainTintUV?:WebGLBuffer; terrainTangents?:WebGLBuffer; terrainSecondaryTangents?:WebGLBuffer; roadUV?:WebGLBuffer; roadWeights?:WebGLBuffer; decalFactors?:WebGLBuffer; poses?:WebGLBuffer; instances:number; instanceMode:number; instanceStart:number; count:number; frame:number; bytes:number; shadowMaterials?:string[]; shadowOnly?:true;
   indexType:number;indexBytes:2|4;shared?:SharedGeometry;instanceExtras?:true;
   propInstances?:WebGLBuffer;propPalettes?:Map<string,WebGLTexture>;propDirtControls?:true };
 export {streetHorizon} from "./street-priority";
@@ -75,7 +75,8 @@ function propLayerTextures(layers:PropMaterialLayers){
   return ids;
 }
 function staticLayerTextures(layers:StaticMaterialLayers){
-  return layers.textures.map((key,index)=>(index<2?terrainTexturePrefix+"diffuse:":
+  const diffuse=layers.normals?authoredDiffusePrefix:terrainTexturePrefix+"diffuse:";
+  return layers.textures.map((key,index)=>(index<2?diffuse:
     index===4?terrainTexturePrefix+"layer-control:":materialMaskChainPrefix)+key);
 }
 const roomGlassRoles=["diffuse","room-glass","material-mask","material-mask","material-mask"] as const;
@@ -1047,9 +1048,15 @@ export class StreetWorld {
         continue;
       }
       if(mesh.kind==="terrain"){
-        for(const [i,{texture,ground,overlay,fallback,decalTintMasks}] of (mesh.appearance?.spans??[]).entries()){
+        for(const [i,{texture,ground,overlay,fallback,decalTintMasks,staticLayers}] of (mesh.appearance?.spans??[]).entries()){
           const extent=spanBounds?.[i]??bounds;
           const range=streetDistance(extent,camera.eye);
+          if(staticLayers&&range<24**2&&onScreen(extent,streetHorizon)){
+            const score=materialScore(extent,range,true);
+            layeredMaterials.push({ids:staticLayerTextures(staticLayers),score});
+            if(this.lightingMaterials&&staticLayers.normals)
+              layeredMaterials.push({ids:staticLayers.normals.map(key=>terrainNormalPrefix+key),score});
+          }
           if(decalTintMasks&&onScreen(extent,streetHorizon))
             layeredMaterials.push({ids:decalTintMasks,score:materialScore(extent,range,true)});
           if(!mesh.replaces||!texture||ground!==false||overlay||!fallback||texture.startsWith(dynamicTerrainPrefix)||
@@ -1074,10 +1081,10 @@ export class StreetWorld {
       }
       let propSurface:string|undefined,propSurfaceCount=0;
       const propTextures=Number.isFinite(propRange)?new Set<string>():undefined;
-      for(const [index,{texture,bump,overlay,ground,count,noDecalColor,propLayers:authored,staticLayers,room,decalTintMask,surfaceDecalBlend}] of (mesh.appearance?.spans??[]).entries()){
+      for(const [index,{texture,bump,overlay,ground,count,noDecalColor,propLayers:authored,staticLayers,room,decalTintMask,surfacePalette,surfaceDecalBlend}] of (mesh.appearance?.spans??[]).entries()){
         if(noDecalColor)continue;
         const extent=spanBounds?.[index];
-        if((authored||staticLayers||room||decalTintMask||surfaceDecalBlend)&&(extent?onScreen(extent,horizon):objectInFrame)){
+        if((authored||staticLayers||room||decalTintMask||surfacePalette||surfaceDecalBlend)&&(extent?onScreen(extent,horizon):objectInFrame)){
           if(authored&&mesh.instances?.propLayerControls&&(!authored.dirt||mesh.instances.propDirtControls))
             layeredMaterials.push({ids:propLayerTextures(authored),score:objectScore});
           if(staticLayers){
@@ -1085,7 +1092,7 @@ export class StreetWorld {
             layeredMaterials.push({ids,score:objectScore});
             if(staticLayers.dirt)layeredMaterials.push({ids:[authoredDiffusePrefix+staticLayers.dirt],score:objectScore});
             for(const [index,detail] of (staticLayers.detail??[]).entries()){
-              const slice=detail?this.materialMaskSlices.get(ids[index+2]):undefined;
+              const slice=detail?.[4]??(detail?this.materialMaskSlices.get(ids[index+2]):undefined);
               if(slice!=null&&detail){
                 const atlas=detailAtlasSlicePrefix+slice;
                 layeredMaterials.push({ids:detail[3]?[atlas,streetBlueNoiseId]:[atlas],score:objectScore});
@@ -1093,6 +1100,7 @@ export class StreetWorld {
             }
           }
           if(decalTintMask)layeredMaterials.push({ids:[decalTintMask],score:objectScore});
+          if(typeof surfacePalette==="string")layeredMaterials.push({ids:[surfacePalette],score:objectScore});
           if(surfaceDecalBlend)layeredMaterials.push({ids:[surfaceDecalBlend.control,surfaceDecalBlend.dirt],score:objectScore});
           if(room&&this.roomTexturesSupported){
             layeredMaterials.push({ids:[streetInteriorCubePrefix+room.colorCube,terrainTexturePrefix+"diffuse:"+room.projected],score:objectScore});
@@ -1538,21 +1546,24 @@ export class StreetWorld {
       gl.vertexAttribPointer(8,4,gl.UNSIGNED_BYTE,true,4,0);
       gl.enableVertexAttribArray(8);
     }
-    let decalOpacity:WebGLBuffer|undefined;
-    if(chunk.mesh.decalOpacity){
-      decalOpacity=gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER,decalOpacity);
-      gl.bufferData(gl.ARRAY_BUFFER,chunk.mesh.decalOpacity,gl.STATIC_DRAW);
-      gl.vertexAttribPointer(9,1,gl.UNSIGNED_BYTE,true,1,0);
-      gl.enableVertexAttribArray(9);
+    // Firefox's Mesa link check counts gl_VertexID as an attribute. Keep
+    // opacity and blend in one slot so the shader fits the 16-slot limit.
+    const {decalOpacity,decalBlend}=mesh;
+    let decalData=decalOpacity;
+    if(decalBlend){
+      decalData=new Uint8Array(decalBlend.length*2);
+      for(let i=0;i<decalBlend.length;i++){
+        decalData[i*2]=decalOpacity?.[i]??255;
+        decalData[i*2+1]=decalBlend[i];
+      }
     }
-    let decalBlend:WebGLBuffer|undefined;
-    if(chunk.mesh.decalBlend){
-      decalBlend=gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER,decalBlend);
-      gl.bufferData(gl.ARRAY_BUFFER,chunk.mesh.decalBlend,gl.STATIC_DRAW);
-      gl.vertexAttribPointer(10,1,gl.UNSIGNED_BYTE,true,1,0);
-      gl.enableVertexAttribArray(10);
+    let decalFactors:WebGLBuffer|undefined;
+    if(decalData){
+      decalFactors=gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,decalFactors);
+      gl.bufferData(gl.ARRAY_BUFFER,decalData,gl.STATIC_DRAW);
+      gl.vertexAttribPointer(9,decalBlend?2:1,gl.UNSIGNED_BYTE,true,0,0);
+      gl.enableVertexAttribArray(9);
     }
     let poses:WebGLBuffer|undefined,propInstances:WebGLBuffer|undefined;
     let propPalettes:Map<string,WebGLTexture>|undefined,propBytes=0,propDirtControls:true|undefined;
@@ -1614,10 +1625,10 @@ export class StreetWorld {
     }
     if(shared)shared.references++;
     const bytes=propBytes+(shared?0:geometryBytes)+[mesh.terrainColors,mesh.terrainTintUV,
-      mesh.terrainTangents,mesh.terrainSecondaryTangents,mesh.road?.uv,mesh.road?.weights,mesh.decalOpacity,
-      mesh.decalBlend,instances?.poses].reduce((sum,buffer)=>sum+(buffer?.byteLength??0),0);
+      mesh.terrainTangents,mesh.terrainSecondaryTangents,mesh.road?.uv,mesh.road?.weights,decalData,
+      instances?.poses].reduce((sum,buffer)=>sum+(buffer?.byteLength??0),0);
     this.meshBytes+=bytes;
-    return {vao,vertices:vertexBuffer,indices:indexBuffer,uv,normals,terrainColors,terrainTintUV,terrainTangents,terrainSecondaryTangents,roadUV,roadWeights,decalOpacity,decalBlend,poses,instances:instanceCount,
+    return {vao,vertices:vertexBuffer,indices:indexBuffer,uv,normals,terrainColors,terrainTintUV,terrainTangents,terrainSecondaryTangents,roadUV,roadWeights,decalFactors,poses,instances:instanceCount,
       instanceMode:instances?.affine?2:instances?1:0,instanceStart:0,instanceExtras,propInstances,propPalettes,propDirtControls,
       count:mesh.indices.length,indexType:compact?gl.UNSIGNED_SHORT:gl.UNSIGNED_INT,indexBytes:compact?2:4,
       frame:this.frame,bytes,shadowMaterials,shared};
@@ -2241,6 +2252,9 @@ export class StreetWorld {
     const parallaxMarch=uniform("propParallaxMarch");
     const staticLayerState=uniform("staticLayerState");
     const staticLayerDirt=uniform("staticLayerDirt");
+    const staticLayerDirtUV1=uniform("staticLayerDirtUV1");
+    const staticLayerMarch=uniform("staticLayerMarch");
+    const staticLayerNormals=uniform("staticLayerNormals");
     const staticDetailUniforms=[uniform("staticDetail0"),uniform("staticDetail1")];
     const roomState=this.roomTexturesSupported?uniform("roomState"):null;
     const roomHasProjection=roomState?uniform("roomHasProjection"):null;
@@ -2840,7 +2854,7 @@ export class StreetWorld {
                 if(tint.vertexAmount)gl.uniform4f(uniform("roadVertexTintAmount"),...tint.vertexAmount);
               }
               const parallax=authoredLocal&&road.parallax;
-              const control=parallax&&gpu.normals&&gpu.terrainSecondaryTangents&&gpu.decalOpacity&&this.textures.get(parallax.texture);
+              const control=parallax&&gpu.normals&&gpu.terrainSecondaryTangents&&chunk.mesh.decalOpacity&&this.textures.get(parallax.texture);
               if(parallax&&control){
                 // This road variant does not use the sector tint sampler.
                 gl.activeTexture(gl.TEXTURE11);
@@ -2875,7 +2889,7 @@ export class StreetWorld {
               }
               gl.uniform1i(uniform("roadEnabled"),1);
               gl.uniform1i(uniform("roadVertexOnly"),mask?0:1);
-              gl.uniform1i(uniform("roadMaskUV3"),road.maskUV===3?1:0);
+              gl.uniform1i(uniform("roadMaskUV"),road.maskUV??0);
               gl.uniform1f(uniform("roadProjectedDetail"),atlas?road.vertexOnly||mask?1:-1:0);
               gl.uniform1i(uniform("roadUsesHeight"),height?1:0);
               gl.uniform1i(uniform("roadAuthoredHeight"),height?.authored?1:0);
@@ -2941,7 +2955,7 @@ export class StreetWorld {
               }
               for(const [index,location] of staticDetailUniforms.entries()){
                 const detail=authored.detail?.[index];
-                const slice=detail?this.materialMaskSlices.get(ids[index+2]):undefined;
+                const slice=detail?.[4]??(detail?this.materialMaskSlices.get(ids[index+2]):undefined);
                 const texture=slice!=null?this.terrainTextures.get(detailAtlasSlicePrefix+slice):undefined;
                 const noise=detail?.[3]?this.terrainTextures.get(streetBlueNoiseId):undefined;
                 if(detail&&texture&&(!detail[3]||noise)){
@@ -2951,18 +2965,32 @@ export class StreetWorld {
                     gl.activeTexture(gl.TEXTURE11);
                     gl.bindTexture(gl.TEXTURE_2D,noise);
                   }
-                  gl.uniform4f(location,...detail);
+                  gl.uniform4f(location,detail[0],detail[1],detail[2],detail[3]);
                 }else gl.uniform4f(location,0,0,0,0);
               }
-              const dirt=authored.dirt&&gpu.decalOpacity&&this.terrainTextures.get(authoredDiffusePrefix+authored.dirt);
+              const dirt=authored.dirt&&chunk.mesh.decalOpacity&&this.terrainTextures.get(authoredDiffusePrefix+authored.dirt);
               if(dirt){
                 gl.activeTexture(gl.TEXTURE9);
                 gl.bindTexture(gl.TEXTURE_2D,dirt);
               }
-              gl.uniform1i(staticLayerDirt,Number(Boolean(dirt)));
+              const surfaceNormals=this.lightingMaterials&&gpu.terrainTangents&&authored.normals?.map(key=>
+                this.terrainTextures.get(terrainNormalPrefix+key));
+              const readyNormals=Boolean(surfaceNormals&&surfaceNormals.every(Boolean));
+              if(readyNormals&&surfaceNormals){
+                useDetailNormal();
+                for(const [index,normal] of surfaceNormals.entries()){
+                  gl.activeTexture(gl.TEXTURE12+index);
+                  gl.bindTexture(gl.TEXTURE_2D,normal!);
+                }
+              }
+              gl.uniform1i(staticLayerDirt,dirt?authored.dirtDirect?2:1:0);
+              gl.uniform1i(staticLayerDirtUV1,Number(Boolean(authored.dirtDirect)));
+              if(authored.parallax&&gpu.terrainTangents)gl.uniform4f(staticLayerMarch,...authored.parallax);
+              else gl.uniform4f(staticLayerMarch,0,0,0,0);
+              gl.uniform1i(staticLayerNormals,Number(readyNormals));
               gl.activeTexture(gl.TEXTURE1);
               gl.uniform2f(staticLayerState,1/Math.max(.001,authored.weightPower**2),authored.layerControl);
-              draw(span.first,span.count,primary,false,Boolean(span.cutout),Boolean(span.singleSided));
+              draw(span.first,span.count,primary,false,Boolean(span.cutout),Boolean(span.singleSided),readyNormals?false:undefined);
               gl.uniform2f(staticLayerState,0,0);
               continue;
             }
@@ -3019,6 +3047,20 @@ export class StreetWorld {
           const alphaMasked=Boolean(span.cutout)&&!replacement;
           const bump=this.lightingMaterials&&primary&&gpu.terrainTangents&&span.bump?this.terrainTextures.get(span.bump):undefined;
           const strength=bump?span.bumpStrength:undefined;
+          const paletteMask=typeof span.surfacePalette==="string"?this.terrainTextures.get(span.surfacePalette):undefined;
+          if(primary&&gpu.terrainColors&&(span.surfacePalette===true||paletteMask)){
+            flush();
+            if(paletteMask){
+              gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,paletteMask);
+              gl.activeTexture(gl.TEXTURE1);
+            }
+            gl.uniform1i(uniform("decalPaletteEnabled"),1);
+            gl.uniform1i(uniform("surfacePaletteMode"),paletteMask?1:2);
+            draw(span.first,span.count,primary,false,alphaMasked,Boolean(span.singleSided),bump,false,strength);
+            gl.uniform1i(uniform("surfacePaletteMode"),0);
+            gl.uniform1i(uniform("decalPaletteEnabled"),0);
+            continue;
+          }
           // Skipped decal spans can leave gaps in the opaque index ranges.
           if(!count||first+count!==span.first||current!==texture||currentBump!==bump||currentBumpStrength!==strength||
             projected!==Boolean(replacement)||masked!==alphaMasked||singleSided!==Boolean(span.singleSided)){
@@ -3124,14 +3166,14 @@ export class StreetWorld {
           gl.activeTexture(gl.TEXTURE1);
         }
         gl.uniform1i(uniform("decalPaletteEnabled"),Number(Boolean(tintMasks||tintMask)));
-        if(tintMask)gl.uniform1i(uniform("standardDecalTintEnabled"),1);
+        if(tintMask)gl.uniform1i(uniform("surfacePaletteMode"),1);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),surfaceBlend.reciprocal);
         gl.uniform1i(instanced,gpu.instanceMode);
         if(propMaterial)bindPropMaterial(propMaterial);
         this.drawTriangles(gpu,first,count,ranges);
         if(propMaterial)gl.uniform2f(propState,0,0);
         if(tintMasks||tintMask)gl.uniform1i(uniform("decalPaletteEnabled"),0);
-        if(tintMask)gl.uniform1i(uniform("standardDecalTintEnabled"),0);
+        if(tintMask)gl.uniform1i(uniform("surfacePaletteMode"),0);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),0);
         if(countDraws){
           if(road)roadDecals++;
@@ -3555,8 +3597,7 @@ export class StreetWorld {
     if(gpu.terrainSecondaryTangents)this.gl.deleteBuffer(gpu.terrainSecondaryTangents);
     if(gpu.roadUV)this.gl.deleteBuffer(gpu.roadUV);
     if(gpu.roadWeights)this.gl.deleteBuffer(gpu.roadWeights);
-    if(gpu.decalOpacity)this.gl.deleteBuffer(gpu.decalOpacity);
-    if(gpu.decalBlend)this.gl.deleteBuffer(gpu.decalBlend);
+    if(gpu.decalFactors)this.gl.deleteBuffer(gpu.decalFactors);
     if(gpu.poses)this.gl.deleteBuffer(gpu.poses);
     if(gpu.propInstances)this.gl.deleteBuffer(gpu.propInstances);
     for(const texture of gpu.propPalettes?.values()??[])this.gl.deleteTexture(texture);

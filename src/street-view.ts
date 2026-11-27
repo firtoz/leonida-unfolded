@@ -57,8 +57,7 @@ layout(location=5) in vec3 instanceThirdRow;
 layout(location=6) in vec3 vertexNormal;
 layout(location=7) in vec2 roadUV;
 layout(location=8) in vec4 roadVertexWeights;
-layout(location=9) in float vertexDecalOpacity;
-layout(location=10) in float vertexDecalBlend;
+layout(location=9) in vec2 vertexDecalFactors;
 layout(location=11) in vec4 vertexTerrainColor;
 layout(location=12) in vec4 vertexTerrainTangent;
 layout(location=13) in vec2 vertexTintUV;
@@ -257,8 +256,8 @@ void main(){
   roomDimensions=roadVertexWeights;
   roomSizeUV=vertexTintUV;
 #endif
-  decalOpacity=vertexDecalOpacity;
-  decalBlend=vertexDecalBlend;
+  decalOpacity=vertexDecalFactors.x;
+  decalBlend=vertexDecalFactors.y;
   terrainVertexColor=vertexTerrainColor;
   propLayerAux=-1.0;
   propLayerDirtWeight=0.0;
@@ -317,7 +316,7 @@ void main(){
   if(roadHasParallax){
     vec3 tangent=vertexSecondaryTangent.xyz;
     vec3 bitangent=cross(tangent,surfaceNormal)*vertexSecondaryTangent.w;
-    float fade=(1.0-vertexDecalOpacity)*clamp(1.0-(length(d)-3.0)/15.0,0.0,1.0);
+    float fade=(1.0-vertexDecalFactors.x)*clamp(1.0-(length(d)-3.0)/15.0,0.0,1.0);
     terrainSecondaryTangent=vec4(dot(tangent,d),dot(bitangent,d),dot(surfaceNormal,d),fade);
   }
   if(waterReflectionPass)d.z=2.0*waterReflectionPlane-world.z-eye.z;
@@ -560,7 +559,7 @@ uniform vec4 roadParallaxRefine;
 uniform vec4 roadDetailU,roadDetailV,roadDetailStrength;
 uniform vec4 roadHeightChannels;
 uniform vec4 roadColorReference;
-uniform bool roadMaskUV3;
+uniform int roadMaskUV;
 uniform float roadProjectedDetail;
 uniform bool terrainEnabled;
 uniform bool terrainProjectedDetail;
@@ -575,13 +574,16 @@ uniform vec2 propLayerState;
 uniform vec2 staticLayerState;
 uniform vec4 staticDetail0;
 uniform vec4 staticDetail1;
-uniform bool staticLayerDirt;
+uniform vec4 staticLayerMarch;
+uniform int staticLayerDirt;
+uniform bool staticLayerDirtUV1;
+uniform bool staticLayerNormals;
 uniform bool twoLayerDecal;
 uniform bool hasDecalControl;
 uniform float retroBlend;
 uniform bool decalPaletteEnabled;
 uniform sampler2D roadMask;
-uniform bool standardDecalTintEnabled;
+uniform int surfacePaletteMode;
 uniform float surfaceDecalReciprocal;
 uniform highp sampler2D roadColors[4];
 uniform vec4 roadPrimary;
@@ -741,7 +743,8 @@ vec3 roadColor(){
   float vertexResidual=clamp(1.0-dot(roadWeights.rgb,vec3(1.0)),0.0,1.0);
   vec4 weights=vec4(roadWeights.rgb,vertexResidual);
   if(!roadVertexOnly){
-    vec3 mask=texture(roadMask,roadMaskUV3?terrainThirdUV:materialUV).rgb;
+    vec2 maskUV=roadMaskUV==3?terrainThirdUV:roadMaskUV==1?roadSecondaryUV:materialUV;
+    vec3 mask=texture(roadMask,maskUV).rgb;
     float maskResidual=clamp(1.0-dot(mask,vec3(1.0)),0.0,1.0);
     weights=mix(vec4(mask,maskResidual),weights,roadWeights.a);
   }
@@ -1583,31 +1586,55 @@ void main(){
   float atlasDisplacement=0.0;
   bool hasCanopyNormal=false;
   if(staticLayerState.x>0.0){
-    vec4 primary=texture(roadMask,materialUV);
-    vec4 secondary=texture(roadColors[0],terrainThirdUV);
-    float control=texture(roadColors[3],terrainThirdUV).b;
+    vec2 uv0=materialUV,uv1=staticLayerDirtUV1?materialUV:terrainThirdUV;
+    if(staticLayerMarch.x>0.0){
+      vec2 dx=dFdx(materialUV),dy=dFdy(materialUV);
+      float nv=dot(n,toward),incidence=abs(nv);
+      float fade=clamp((distance-3.0)/15.0,0.0,1.0);
+      float steps=floor(15.0-14.0*clamp(.2*incidence+.8*fade,0.0,1.0));
+      float gate=clamp(4.0*(1.0-incidence),0.0,1.0)*(1.0-fade);
+      vec3 axis=terrainTangent.xyz-dot(terrainTangent.xyz,n)*n;
+      if(steps>1.0&&gate>0.0&&abs(nv)>1e-5&&dot(axis,axis)>1e-8&&terrainTangent.w!=0.0){
+        vec3 tangent=normalize(axis);
+        vec3 bitangent=cross(tangent,n)*sign(terrainTangent.w);
+        vec2 ray=vec2(dot(tangent,toward),dot(bitangent,toward))*gate/nv;
+        uv0+=marchPropHeight(roadColors[1],uv0,dx,dy,ray,steps,staticLayerMarch.x,staticLayerMarch.y);
+        uv1+=marchPropHeight(roadColors[2],uv1,dx,dy,ray,steps,staticLayerMarch.z,staticLayerMarch.w);
+      }
+    }
+    vec4 primary=texture(roadMask,uv0);
+    vec4 secondary=texture(roadColors[0],uv1);
+    float control=texture(roadColors[3],uv1).b;
     float raw=clamp(terrainVertexColor.a*(1.0+control),0.0,1.0);
     float reciprocal=staticLayerState.x;
     float shaped=clamp(raw/max(.01,reciprocal+(1.0-reciprocal)*raw),0.0,1.0);
     float weight=clamp(shaped*min(1.0,3.0*staticLayerState.y),0.0,1.0)*secondary.a;
-    vec4 mask0=texture(roadColors[1],materialUV),mask1=texture(roadColors[2],terrainThirdUV);
+    if(staticLayerNormals){
+      vec3 normal0=unpackTerrainNormal(texture(terrainNormals[0],uv0).rg,1.0);
+      vec3 normal1=unpackTerrainNormal(texture(terrainNormals[1],uv1).rg,1.0);
+      n=normalize(terrainNormalInWorld(mix(normal0,normal1,weight),terrainTangent,n));
+    }
+    vec4 mask0=texture(roadColors[1],uv0),mask1=texture(roadColors[2],uv1);
     vec3 a=primary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask0.a);
     vec3 b=secondary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask1.a);
     float gain0=0.0,gain1=0.0;
     if(staticDetail0.z>0.0){
-      vec2 uv=materialUV*staticDetail0.xy;
+      vec2 uv=uv0*staticDetail0.xy;
       float detail=staticDetail0.w>0.0?propDetail(terrainHeights[0],uv,mask0.r):
         clamp(0.5+(texture(terrainHeights[0],uv).b-0.5)*mask0.r,0.0,1.0);
       gain0=staticDetail0.z*(2.0*detail-1.0);
     }
     if(staticDetail1.z>0.0){
-      vec2 uv=terrainThirdUV*staticDetail1.xy;
+      vec2 uv=uv1*staticDetail1.xy;
       float detail=staticDetail1.w>0.0?propDetail(terrainHeights[1],uv,mask1.r):
         clamp(0.5+(texture(terrainHeights[1],uv).b-0.5)*mask1.r,0.0,1.0);
       gain1=staticDetail1.z*(2.0*detail-1.0);
     }
     vec3 color=mix(a,b,weight)*(1.0+mix(gain0,gain1,weight));
-    if(staticLayerDirt){
+    if(staticLayerDirt==2){
+      vec4 dirt=texture(terrainHeights[2],terrainThirdUV);
+      color=mix(color,dirt.rgb,decalOpacity*dirt.a);
+    }else if(staticLayerDirt==1){
       vec4 dirt=texture(terrainHeights[2],materialUV);
       float amount=dirt.a*decalOpacity;
       float luma=dot(color,vec3(0.2125,0.7154,0.0721));
@@ -1662,8 +1689,8 @@ void main(){
     if(hasCanopyNormal)n=normalize(atlasNormal);
     if(twoLayerDecal)source=layeredDecal(source,materialUV);
     if(surfaceDecalReciprocal>0.0)source=surfaceDecal(source);
-    if(standardDecalTintEnabled){
-      float mask=texture(roadMask,materialUV).a;
+    if(surfacePaletteMode!=0){
+      float mask=surfacePaletteMode==2?1.0:texture(roadMask,materialUV).a;
       source.rgb=srgbColor(linearColor(source.rgb)*mix(vec3(1.0),terrainVertexColor.rgb,mask));
     }
     if(material==${standardPaletteMaterial}.0)
@@ -1889,7 +1916,7 @@ export class StreetView {
     gl.bindTexture(gl.TEXTURE_2D,this.aerial);
     gl.activeTexture(gl.TEXTURE0);
     if("vertices" in mesh)this.upload(mesh);
-    gl.vertexAttrib1f(9,1);
+    gl.vertexAttrib2f(9,1,0);
     gl.enable(gl.DEPTH_TEST);
     this.reset();
     const {signal}=this.events;

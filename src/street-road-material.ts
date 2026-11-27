@@ -26,7 +26,7 @@ export type DecalLayers=[secondaryColor:string,control?:string];
 export type RoadLayers={
   textures:[mask:string,red:string,green:string,blue:string,residual:string]|[red:string,green:string,blue:string,residual:string];
   vertexOnly?:true;
-  maskUV?:3;
+  maskUV?:1|3;
   useProjectedColor?:true;
   localVertexColor?:true;
   primaryLayers?:[number,number,number,number];
