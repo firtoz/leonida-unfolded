@@ -216,6 +216,7 @@ export class StreetWorld {
   private readonly rollers=new Map<string,Chunk>();
   private readonly openRollers=new Set<string>();
   private readonly rollerMotion=new Map<string,{closed:Float32Array;fraction:number;from:number;to:number;started:number;duration:number}>();
+  private readonly openRollerBounds=new WeakMap<Float32Array,Bounds|null>();
   private attachedLodFamilies?:{skyline:Map<Chunk,Chunk[]>;bridges:Map<Chunk,Chunk[]>};
   private occlusionReview?:StreetOcclusionReview;
   private occlusionRevision=0;
@@ -569,6 +570,32 @@ export class StreetWorld {
       this.shadowRevision++;
     }
     return moving;
+  }
+
+  private rollerOutsideView(camera:StreetStreamView){
+    let visible:ReturnType<typeof streetFrustum>|undefined;
+    for(const [id,state] of this.rollerMotion){
+      if(state.fraction===0&&state.to===0)continue;
+      // Retain the conservative fallback for an animating roller. For a
+      // fully open roller, check both its original occluder and current mesh.
+      if(state.fraction!==1||state.to!==1)return false;
+      const vertices=this.rollers.get(id)?.mesh.vertices;
+      if(!vertices?.length||vertices.length!==state.closed.length)return false;
+      let bounds=this.openRollerBounds.get(state.closed);
+      if(bounds===undefined){
+        const closedAndOpen:Bounds=[Infinity,Infinity,Infinity,-Infinity,-Infinity,-Infinity];
+        for(let at=0;at<vertices.length;at+=4)for(let axis=0;axis<3;axis++){
+          const closed=state.closed[at+axis],open=vertices[at+axis];
+          closedAndOpen[axis]=Math.min(closedAndOpen[axis],closed-1/16,open-1/16);
+          closedAndOpen[axis+3]=Math.max(closedAndOpen[axis+3],closed+1/16,open+1/16);
+        }
+        bounds=closedAndOpen.every(Number.isFinite)?closedAndOpen:null;
+        this.openRollerBounds.set(state.closed,bounds);
+      }
+      visible??=streetFrustum(camera,1.015);
+      if(!bounds||visible(bounds,Infinity))return false;
+    }
+    return true;
   }
 
   private rollerOccluded(id:string,[x,y,z]:readonly [number,number,number],[dx,dy,dz]:readonly [number,number,number]){
@@ -2206,7 +2233,7 @@ export class StreetWorld {
     // A streamed or moving shell can expose areas beyond authored apertures.
     // Wait for its structural draws to be resident before pruning foliage.
     const roomReady=room&&this.interiorComplete&&!this.loading&&
-      ![...this.rollerMotion.values()].some(state=>state.fraction!==0||state.to!==0)&&
+      this.rollerOutsideView(camera)&&
       visible.some(chunk=>chunk.mesh.interior?.scene.id===room.scene.id&&chunk.mesh.kind==="structure")&&
       !visible.some(chunk=>chunk.mesh.interior?.scene.id===room.scene.id&&chunk.mesh.kind==="structure"&&!this.cache.has(chunk));
     const hiddenFoliage=roomReady?hiddenExteriorFoliage(room,camera,gl.drawingBufferWidth,gl.drawingBufferHeight):undefined;
