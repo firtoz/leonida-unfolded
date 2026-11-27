@@ -18,6 +18,13 @@ import { readInteriorCollision } from "./street-interior-collision";
 import { decodeStaticCollision } from "./street-collision";
 
 const worldCollisionTypes=new Set([6]);
+const worldCollisionMount=({path}:{path:string})=>path.includes("/map/environment/")||path.includes("/map/terrain/");
+const worldCollisionMember=(member:StreetArchiveMember)=>member.type===6&&Boolean(member.collisionBounds);
+function handoffCollisionMember(member:StreetArchiveMember):StreetArchiveMember{
+  const {type,offset,end,mountBase,collisionBounds,systemBytes,chunks,pageChunks}=member;
+  return {type,offset,end,mountBase,collisionBounds,systemBytes,chunks,pageChunks};
+}
+
 const catalogMemberTypes: ReadonlySet<number> = new Set([2, 3, 4, 6, 0x0b, 0x49, 0x4a]);
 const packedImpostorDrawableKey=BigInt("0x"+drawableNameKey("ip_slod_imposter"));
 const nativeGroundCover=/^veg_(?:hedge|debris)_.*(?<!_uw)(?<!_water)(?<!_imposter)$/i;
@@ -26,6 +33,8 @@ const floatingLeafDebris=/^veg_debris_(?:[a-z0-9]+_)*leaves_\d+_water$/i;
 const plantDrawable=(model:VegetationModel)=>batchPlant.test(model.name)||nativeGroundCover.test(model.name)||floatingLeafDebris.test(model.name);
 
 export type NativeCatalogOpen = { catalog: "open"; file: Blob; executable: Blob; common?: Blob };
+export type NativeWorldCollisionQuery={catalog:"worldCollision"};
+export type NativeWorldCollisionReply={worldCollision:StreetArchiveMember[]};
 export type NativeCatalogQuery = { catalog: "query"; id: number; point: readonly [number, number]; radius: number; altitude?: number; wide?:true };
 export type NativeCatalogCancel = { catalog: "cancel" };
 export type NativeCatalogCancelNear = { catalog:"cancelNear"; id:number };
@@ -80,6 +89,8 @@ export class StreetNativeCatalog {
   private readonly archive: Archive;
   private readonly directory: StreetRpf9;
   private collisionIndex?:Promise<StreetArchiveMember[]>;
+  private receiveRegisteredCollision?: (members:StreetArchiveMember[])=>void;
+  private registrationCollision?:StreetArchiveMember[];
   private readonly collisionIds=new Map<number,string[]>();
   private readonly maps: StreetArchiveMember[] = [];
   private readonly drawables = new Map<bigint, StreetArchiveMember[]>();
@@ -106,13 +117,17 @@ export class StreetNativeCatalog {
   private readonly pendingDefinitions = new Map<number,Promise<Awaited<ReturnType<typeof readDrawableAliases>>>>();
   private ready?: Promise<void>;
 
-  constructor(file: Blob, executable: Blob, private readonly common?: Blob) {
+  constructor(file: Blob, executable: Blob, private readonly common?: Blob,collectWorldCollision=false) {
+    if(collectWorldCollision)this.registrationCollision=[];
     this.archive = new Archive("levels.rpf", file);
     this.directory = new StreetRpf9(this.archive, executable);
   }
 
   prepare() {
-    return this.ready ??= this.register();
+    return this.ready ??= this.register().catch(error=>{
+      this.registrationCollision=undefined;
+      throw error;
+    });
   }
 
   async terrainMaterial(name:string){
@@ -126,7 +141,12 @@ export class StreetNativeCatalog {
     const mounts=common?[...(await this.directory.levelMounts(common)).mounts.values()]:[];
     const canopyMount=mounts.find(mount=>mount.path==="platform:/levels/americas/vegetation/imposters.rpf")?.base;
     for(const mount of mounts)if(mount.path.includes("/interiors/"))this.interiorMounts.add(mount.base);
-    for await (const members of this.directory.catalogMembers(common,catalogMemberTypes)) {
+    const collisionSources=this.registrationCollision;
+    for await (const members of this.directory.catalogMembers(common,catalogMemberTypes,
+      collisionSources?(mount,members)=>{
+        if(worldCollisionMount(mount))for(const member of members)
+          if(worldCollisionMember(member))collisionSources.push(handoffCollisionMember(member));
+      }:undefined)) {
       for (const member of members) {
         if (member.type === 0x49 && (member.entityBounds || member.streamingBounds)) this.maps.push(member);
         else if((member.type===0x0b||member.type===6&&this.interiorMounts.has(member.mountBase))&&member.nameKey){
@@ -151,25 +171,58 @@ export class StreetNativeCatalog {
     }
   }
 
-  private async discoverCollision(){
+  async takeRegisteredCollisionSources(){
+    if(!this.registrationCollision)return;
+    await this.prepare();
+    const members=this.registrationCollision;
+    this.registrationCollision=undefined;
+    return members;
+  }
+
+  useRegisteredCollisionSources(members:StreetArchiveMember[]){
+    if(!members.length)return false;
+    if(this.receiveRegisteredCollision){
+      this.receiveRegisteredCollision(members);
+      return true;
+    }
+    if(this.collisionIndex)return false;
+    this.collisionIndex=Promise.resolve(members);
+    return true;
+  }
+
+  private async discoverCollision(active:()=>boolean){
     const common=this.common&&new Archive("common.rpf",this.common);
     if(!common)return [];
     const {mounts}=await this.directory.levelMounts(common);
-    const candidates=[...mounts.values()].filter(mount=>
-      mount.path.includes("/map/environment/")||mount.path.includes("/map/terrain/"));
+    const candidates=[...mounts.values()].filter(worldCollisionMount);
     const sources:StreetArchiveMember[]=[];
-    for(let start=0;start<candidates.length;start+=8){
+    for(let start=0;start<candidates.length&&active();start+=8){
       const batches=await Promise.all(candidates.slice(start,start+8).map(mount=>this.directory.mountedMembers(mount,worldCollisionTypes)));
+      if(!active())break;
       for(const batch of batches)for(const member of batch)
-        if(member.type===6&&member.collisionBounds)sources.push(member);
+        if(worldCollisionMember(member))sources.push(member);
     }
     return sources;
   }
 
   prepareCollision(){
-    return this.collisionIndex??=this.discoverCollision().catch(error=>{
-      this.collisionIndex=undefined;
-      throw error;
+    return this.collisionIndex??=new Promise<StreetArchiveMember[]>((resolve,reject)=>{
+      const accept=(members:StreetArchiveMember[])=>{
+        this.receiveRegisteredCollision=undefined;
+        resolve(members);
+      };
+      const active=()=>this.receiveRegisteredCollision===accept;
+      this.receiveRegisteredCollision=accept;
+      // Start the original discovery immediately. A complete handoff can
+      // satisfy this same promise while the current fallback group unwinds.
+      void this.discoverCollision(active).then(members=>{
+        if(active())accept(members);
+      },error=>{
+        if(!active())return;
+        this.receiveRegisteredCollision=undefined;
+        this.collisionIndex=undefined;
+        reject(error);
+      });
     });
   }
 

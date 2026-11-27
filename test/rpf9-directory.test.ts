@@ -250,3 +250,39 @@ test("resolves terrain material hashes through the archetype extension list",()=
   data.setBigUint64(0x168,0x5100004n,true);
   expect(terrainMaterialHashes(data,0xdb73c1f9).size).toBe(0);
 });
+
+test("named catalog mount visits match direct collision listing order and aliases",async()=>{
+  const blob=new Blob([new Uint8Array(8192)]),archive=new Archive("synthetic mounts",blob);
+  const directory=new StreetRpf9(archive,blob);
+  const mounts=[
+    {path:"stage:/map/environment/root.rpf",key:1n,base:256,end:1024},
+    {path:"stage:/map/terrain/next.rpf",key:2n,base:1024,end:2048},
+    {path:"stage:/map/environment/alias.rpf",key:3n,base:256,end:1024},
+  ];
+  const valid=(at:number,mountBase:number)=>({at,end:at+64,mountBase,type:6,collisionBounds:[0,0,0,1,1,1]});
+  const root=[
+    {at:256,end:1024,mountBase:0,type:0},
+    {at:1024,end:2048,mountBase:0,type:0},
+    valid(2080,0),
+  ];
+  const source=new Map([
+    [256,[valid(320,256),{at:448,end:768,mountBase:256,type:0},valid(800,256)]],
+    [448,[valid(512,448)]],
+    [1024,[valid(1088,1024),{at:1200,end:1264,mountBase:1024,type:2}]],
+  ]);
+  Object.assign(directory,{
+    levelMounts:async()=>({mounts:new Map(mounts.map(mount=>[mount.key,mount])),missingIncludes:[]}),
+    listing:async()=>root,
+    catalogListing:async(base:number)=>source.get(base)??[],
+  });
+  const direct:number[]=[],flattened:number[]=[];
+  for await(const members of directory.catalogMembers(archive,new Set([2,6]),(_,rows)=>{
+    for(const row of rows)if(row.type===6&&row.collisionBounds)direct.push(row.offset);
+  }))for(const row of members)if(row.type===6)flattened.push(row.offset);
+  const standalone=(await Promise.all(mounts.map(mount=>directory.mountedMembers(mount,new Set([6])))))
+    .flat().map(row=>row.offset);
+  expect(direct).toEqual(standalone);
+  expect(direct).toEqual([336,816,1104,336,816]);
+  expect(flattened).toContain(528);
+  expect(flattened).toContain(2096);
+});

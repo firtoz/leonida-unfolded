@@ -27,6 +27,12 @@ function resourceMember({ at, ...member }: Member): StreetArchiveMember | undefi
   if (member.type !== 0 && offset + 7 < member.end) return { ...member, offset };
 }
 
+function resourceMembers(members:readonly Member[],types?:ReadonlySet<number>){
+  return members.flatMap(member=>!types||types.has(member.type)?resourceMember(member)??[]:[]);
+}
+
+type NamedMountVisitor=(mount:Rpf9Mount,members:readonly StreetArchiveMember[])=>void;
+
 export function readRpf9StreamingBounds(record?: Uint8Array, field: "streaming" | "entities" = "streaming"): Bounds | undefined {
   const start = field === "streaming" ? 0x18 : 0x30;
   if (!record || record.length < start + 24) return;
@@ -101,7 +107,7 @@ export class StreetRpf9 {
 
   async mountedMembers(mount:Rpf9Mount,types?:ReadonlySet<number>):Promise<StreetArchiveMember[]> {
     const members=await this.catalogListing(mount.base,mount.end,types);
-    return members.flatMap(member=>!types||types.has(member.type)?resourceMember(member)??[]:[]);
+    return resourceMembers(members,types);
   }
 
   async readMountedMetadata(mount:Rpf9Mount,nameHash:number){
@@ -118,7 +124,7 @@ export class StreetRpf9 {
     return readRpf9PackedMember(this.archive,directory,match,prepare.processMember,mount);
   }
 
-  async *catalogMembers(common: Archive | undefined, types?: ReadonlySet<number>) {
+  async *catalogMembers(common: Archive | undefined, types?: ReadonlySet<number>,visitNamedMount?:NamedMountVisitor) {
     const mounts = common ? (await this.levelMounts(common)).mounts : undefined;
     const root = await this.listing(0, this.archive.file.size);
     const named = new Set<number>();
@@ -128,8 +134,10 @@ export class StreetRpf9 {
       const group=ordered.slice(start,start+width);
       const listings=await Promise.all(group.map(mount=>this.catalogListing(mount.base,mount.end,types)));
       for(let index=0;index<group.length;index++){
-        named.add(group[index].base);
-        yield* this.catalogTree(listings[index],1,types);
+        const mount=group[index];
+        named.add(mount.base);
+        yield* this.catalogTree(listings[index],1,types,
+          visitNamedMount?members=>visitNamedMount(mount,members):undefined);
       }
     }
     // Some valid root entries are outside the main level manifest.
@@ -141,8 +149,11 @@ export class StreetRpf9 {
     return this.listings.get(base) ?? (types ? this.loadListing(base,end,types) : this.listing(base,end));
   }
 
-  private async *catalogTree(members: Member[], depth: number, types?: ReadonlySet<number>): AsyncGenerator<StreetArchiveMember[]> {
-    yield members.flatMap(member => !types || types.has(member.type) ? resourceMember(member) ?? [] : []);
+  private async *catalogTree(members: Member[], depth: number, types?: ReadonlySet<number>,
+    visit?: (members:readonly StreetArchiveMember[])=>void): AsyncGenerator<StreetArchiveMember[]> {
+    const resources=resourceMembers(members,types);
+    visit?.(resources);
+    yield resources;
     for (const member of members) {
       if (member.type !== 0) continue;
       if (depth >= 4) throw new Error("Nested RPF9 directory exceeds supported depth");

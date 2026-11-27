@@ -3,7 +3,7 @@ import { openStreetIndexCache, readStreetCheckpoints, saveStreetIndexBundle } fr
 import { packStreetIndex } from "./street-index-pack";
 import { indexedGraphicsPages, type IndexedGraphicsRange, type ScanScope, type ScanSegment } from "./street-index-scan";
 import { StreetRpf9 } from "./street-rpf9";
-import { StreetNativeCatalog, placeInteriorAssets, type NativeInteriorsQuery,type NativeInteriorsReply,type NativeCatalogOpen, type NativeCatalogQuery, type NativeCatalogCancel, type NativeCatalogCancelNear, type NativeCatalogReply,
+import { StreetNativeCatalog, placeInteriorAssets, type NativeInteriorsQuery,type NativeInteriorsReply,type NativeCatalogOpen, type NativeCatalogQuery, type NativeCatalogCancel, type NativeCatalogCancelNear, type NativeCatalogReply,type NativeWorldCollisionQuery,type NativeWorldCollisionReply,
   type NativeVegetationQuery, type NativeVegetationReply, type NativePackedModelsQuery, type NativePackedModelsReply } from "./street-native-catalog";
 
 export type ScanRequest={file:Blob;segment:number;scope:ScanScope;executable:Blob;point?:readonly [number,number]};
@@ -34,11 +34,16 @@ async function pack({file,key,total}:PackRequest){
   }finally{db.close();}
 }
 
-worker.onmessage=({data}:MessageEvent<ScanRequest|PackRequest|GraphicsRequest|NativeCatalogOpen|NativeCatalogQuery|NativeCatalogCancel|NativeCatalogCancelNear|NativeVegetationQuery|NativePackedModelsQuery|NativeInteriorsQuery>)=>{
+worker.onmessage=({data}:MessageEvent<ScanRequest|PackRequest|GraphicsRequest|NativeCatalogOpen|NativeCatalogQuery|NativeCatalogCancel|NativeCatalogCancelNear|NativeVegetationQuery|NativePackedModelsQuery|NativeInteriorsQuery|NativeWorldCollisionQuery>)=>{
   if("catalog" in data){
     if(data.catalog==="open"){
-      catalog=new StreetNativeCatalog(data.file,data.executable,data.common);
+      catalog=new StreetNativeCatalog(data.file,data.executable,data.common,true);
       void catalog.prepare().catch(()=>{});
+    }else if(data.catalog==="worldCollision"&&catalog){
+      const source=catalog;
+      void source.takeRegisteredCollisionSources().then(worldCollision=>{
+        if(catalog===source&&worldCollision?.length)worker.postMessage({worldCollision} satisfies NativeWorldCollisionReply);
+      }).catch(()=>{});
     }else if(data.catalog==="cancel"){
       catalogQuery=0;
       wideCatalogQuery=0;

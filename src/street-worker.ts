@@ -17,7 +17,7 @@ import { LocalStreetIndex } from "./street-index";
 import { StreetAssetCache } from "./street-asset-cache";
 import { indexFileName } from "./street-index-bundle";
 import { openRpf9Preparer,rpf9ExecutableName } from "./rpf9-prepare";
-import { StreetNativeCatalog, type NativeInteriorsQuery,type NativeInteriorsReply,type NativeCatalogOpen, type NativeCatalogQuery, type NativeCatalogCancel,type NativeCatalogCancelNear, type NativeCatalogReply,
+import { StreetNativeCatalog, type NativeInteriorsQuery,type NativeInteriorsReply,type NativeCatalogOpen, type NativeCatalogQuery, type NativeCatalogCancel,type NativeCatalogCancelNear, type NativeCatalogReply,type NativeWorldCollisionQuery,type NativeWorldCollisionReply,
   type NativeVegetation, type NativeVegetationQuery, type NativeVegetationReply, type NativeVegetationSource,
   type NativePackedModelsQuery, type NativePackedModelsReply } from "./street-native-catalog";
 import { readIndexedGraphics, type IndexedVegetation } from "./street-index-scan";
@@ -87,6 +87,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
   const spawnSurfaces=new Map<string,Promise<StreetChunk[]>>();
   let localIndex:LocalStreetIndex|undefined;
   let catalogWorker:Worker|undefined;
+  let collisionHandoffWorker:Worker|undefined;
   let terrainCatalog:StreetNativeCatalog|undefined;
   let catalogId=0;
   let interiorRequest:{id:number;eye:StreetStreamView["eye"]}|undefined;
@@ -329,8 +330,13 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       try{catalogWorker=new Worker(new URL("./street-scan-worker.js",import.meta.url),{type:"module"});}
       catch{return;}
       const worker=catalogWorker;
-      worker.onmessage=({data}:MessageEvent<NativeCatalogReply|NativeVegetationReply|NativePackedModelsReply|NativeInteriorsReply>)=>{
+      worker.onmessage=({data}:MessageEvent<NativeCatalogReply|NativeVegetationReply|NativePackedModelsReply|NativeInteriorsReply|NativeWorldCollisionReply>)=>{
         if(catalogWorker!==worker)return;
+        if("worldCollision" in data){
+          const archive=state?.archives.get("levels.rpf");
+          if(archive?.file===file)openTerrainCatalog(archive)?.useRegisteredCollisionSources(data.worldCollision);
+          return;
+        }
         if("interiors" in data){
           if(interiorRequest?.id===data.id){
             if(data.assets)void deliverInteriors(data.id,data.assets,data.collision??[]);
@@ -593,7 +599,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       spawnSurfaces.clear();
       localIndex?.close();
       localIndex=undefined;
-      catalogWorker?.terminate();catalogWorker=undefined;
+      catalogWorker?.terminate();catalogWorker=collisionHandoffWorker=undefined;
       terrainCatalog=undefined;
       finishPlants?.();finishPlants=undefined;nativePlantArea=nativeCanopyArea=undefined;
       catalogArea=undefined;
@@ -697,8 +703,14 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       }
       if(request.kind==="streetPrepareWorld"){
         const archive=state?.archives.get("levels.rpf");
-        if(archive&&!files[indexFileName])ensureNativeCatalog(archive.file);
-        if(request.collision&&archive)void openTerrainCatalog(archive)?.prepareCollision().catch(()=>{});
+        const native=archive&&!files[indexFileName]?ensureNativeCatalog(archive.file):undefined;
+        if(request.collision&&archive){
+          void openTerrainCatalog(archive)?.prepareCollision().catch(()=>{});
+          if(native&&collisionHandoffWorker!==native){
+            collisionHandoffWorker=native;
+            native.postMessage({catalog:"worldCollision"} satisfies NativeWorldCollisionQuery);
+          }
+        }
         return true;
       }
       if(request.kind==="streetPrepareEntry"){
