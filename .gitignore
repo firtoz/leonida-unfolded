@@ -6,7 +6,7 @@ dist/
 *.terrain-index
 *.png
 *.webp
-!/explorer.webp
+!/public/explorer.webp
 *.jpg
 *.mp4
 *.sqlite*

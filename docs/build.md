@@ -4,7 +4,7 @@ The production build bundles the browser entry points and Web Workers, copies th
 
 - `third-party/night-decode.c` uses `third-party/bcdec.h` for block texture decoding.
 - `third-party/bcpack-wasm/` contains the Rust WebAssembly wrapper and its locked dependencies. See its notices for the pinned decoder sources and table provenance.
-- `explorer.webp` is original artwork generated for Leonida Unfolded from its own interface concept. It is distributed with the viewer.
+- `public/explorer.webp` is original artwork generated for Leonida Unfolded from its own interface concept. It is distributed with the viewer.
 
 ## Raised overview water
 

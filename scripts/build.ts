@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, copyFile, readFile, readdir, rm, writeFile } from "node
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
-const staticFiles=["index.html","styles.css","demo.html","demo.css","explorer.webp","LICENSE"];
+const staticFiles=["index.html","styles.css","demo.html","demo.css","LICENSE"];
+const publicFiles=["explorer.webp"];
 const dist = resolve(Bun.env.TERRAIN_ATLAS_DIST??join(import.meta.dir,"../dist"));
 const out = await mkdtemp(join(tmpdir(),"terrain-atlas-build-"));
 try {
@@ -18,6 +19,7 @@ try {
   });
   if(!output.success)throw new Error(output.logs.map(log=>log.message).join("\n"));
   for(const name of staticFiles)await copyFile(join(import.meta.dir,"..",name),join(out,name));
+  for(const name of publicFiles)await copyFile(join(import.meta.dir,"../public",name),join(out,name));
   const sourceUrl=Bun.env.TERRAIN_ATLAS_SOURCE_URL;
   if(sourceUrl&&!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/tree\/[a-f\d]{40}$/.test(sourceUrl))
     throw new Error("Set TERRAIN_ATLAS_SOURCE_URL to the GitHub tree URL of the exact release commit.");
@@ -42,7 +44,7 @@ try {
   await writeFile(join(out,".nojekyll"),"");
 
   const expected=new Set(output.outputs.map(file=>file.path.split("/").at(-1)));
-  for(const name of [...staticFiles,...decoders,"SOURCE.txt","THIRD-PARTY-NOTICES.txt",".nojekyll"])expected.add(name);
+  for(const name of [...staticFiles,...publicFiles,...decoders,"SOURCE.txt","THIRD-PARTY-NOTICES.txt",".nojekyll"])expected.add(name);
   const actual=await readdir(out);
   for(const name of actual){
     if(!expected.has(name))throw new Error(`Unexpected publish file ${name}. Build in a clean dist directory.`);
