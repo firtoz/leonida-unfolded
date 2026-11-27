@@ -38,6 +38,12 @@ const terrainButton=button("show-terrain"),terrainTilt=input("terrain-tilt"),ter
 const terrainRelief=get<HTMLSelectElement>("terrain-relief");
 const terrainStatus=get("terrain-status");
 const streetDialog=get<HTMLDialogElement>("street-view");
+const streetControls=get<HTMLDialogElement>("street-controls");
+const streetControlsButton=button("street-controls-open");
+const streetControlsKey="terrain-atlas.explore-controls-seen";
+let streetControlsSeen=false;
+let controlsCollapse:HTMLElement|undefined;
+try{streetControlsSeen=localStorage.getItem(streetControlsKey)==="true";}catch{}
 const streetStatus=get("street-status"),streetRoadName=get("street-road-name"),mapRoadName=get("map-road-name");
 const mapPlayer=get("map-player");
 let pausedLocation:ReturnType<StreetView["destination"]>|null=null;
@@ -297,6 +303,7 @@ function changedInputs(){
   reloadingStreet=false;streetBatches=[];pendingStreetPose=null;
   mapBehindStreet=false;deferredMapMode=null;
   terrain?.dispose();terrain=null;terrainSource=null;terrainButton.disabled=true;
+  if(streetControls.open)streetControls.close();
   if(streetDialog.open)streetDialog.close();
   if(street)releaseStreet();
   worldEntry=null;worldSerial++;
@@ -1643,7 +1650,53 @@ function openStreetWorld(origin:[number,number,number],yaw?:number,anchor?:Stree
   streetStatus.textContent="Reading gameplay terrain";
   resetStreetRoadName();
   mountStreet();
+  if(street&&!streetControlsSeen&&!streetControls.open)showStreetControls();
 }
+
+function showStreetControls(){
+  if(!streetDialog.open||streetControls.open)return;
+  controlsCollapse?.remove();
+  streetControls.showModal();
+}
+function closeStreetControls(){
+  if(!streetControls.open)return;
+  const firstVisit=!streetControlsSeen;
+  const from=streetControls.getBoundingClientRect();
+  streetControlsSeen=true;
+  try{localStorage.setItem(streetControlsKey,"true");}catch{}
+  streetControls.close();
+  if(firstVisit)get("street-canvas").focus({preventScroll:true});
+  if(reducedMotion.matches||!streetDialog.open||!from.width)return;
+
+  const to=streetControlsButton.getBoundingClientRect();
+  const effect=document.createElement("div");
+  effect.className="street-controls-collapse";
+  effect.setAttribute("aria-hidden","true");
+  controlsCollapse=effect;
+  streetDialog.append(effect);
+  const pose=(rect:DOMRect,width=rect.width,height=rect.height)=>({
+    width:`${width}px`,height:`${height}px`,
+    transform:`translate(${rect.left+(rect.width-width)/2}px,${rect.top+(rect.height-height)/2}px)`,
+  });
+  const animation=effect.animate([
+    {...pose(from),borderRadius:".85rem",opacity:1,easing:"ease-in"},
+    {...pose(from,22,22),borderRadius:"50%",offset:.32,opacity:1,easing:"ease-in-out"},
+    {...pose(to,22,22),borderRadius:"50%",offset:.88,opacity:1,easing:"ease-out"},
+    {...pose(to,12,12),borderRadius:"50%",opacity:0},
+  ],{duration:1000,fill:"both"});
+  const cleanup=()=>{
+    effect.remove();
+    if(controlsCollapse===effect)controlsCollapse=undefined;
+  };
+  void animation.finished.then(cleanup,cleanup);
+}
+streetControlsButton.onclick=showStreetControls;
+button("street-controls-close").onclick=closeStreetControls;
+streetControls.addEventListener("cancel",event=>{
+  event.preventDefault();
+  event.stopPropagation();
+  closeStreetControls();
+});
 function showStreetDestination(open:boolean){
   streetDestination.hidden=!open;
   button("street-go-to").setAttribute("aria-expanded",String(open));
@@ -1771,6 +1824,7 @@ function pauseStreet(center=true){
   pausedLocation=street.destination();
   resetStreetRoadName();
   street.setPaused(true);
+  if(streetControls.open)streetControls.close();
   streetDialog.close();
   loading.attach(workspace);
   loading.clear("region","region-detail","vegetation","navigation","textures");
@@ -1812,6 +1866,8 @@ streetDialog.addEventListener("close",()=>{
   if(!pausedLocation&&!streetDialog.open&&street)releaseStreet();
 });
 function releaseStreet(){
+  controlsCollapse?.remove();
+  controlsCollapse=undefined;
   clearPausedLocation();
   loading.attach(workspace);
   loading.clear("region","vegetation","navigation");

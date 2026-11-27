@@ -162,6 +162,7 @@ class Browser {
       break;
     }
     await this.wait('document.querySelector("#street-view").open&&!document.querySelector("#street-go-to").disabled');
+    await this.eval('if(document.querySelector("#street-controls")?.open)document.querySelector("#street-controls-close").click()');
   }
   async key(code:"ArrowRight"|"KeyW"|"Space",down:boolean){
     const [key,vk]={ArrowRight:["ArrowRight",39],KeyW:["w",87],Space:[" ",32]}[code];

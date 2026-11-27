@@ -167,6 +167,7 @@
   <dialog id="street-view" aria-labelledby="street-title">
     <header>
       <h2 id="street-title">Explore</h2>
+      <button id="street-controls-open" type="button" aria-haspopup="dialog" aria-controls="street-controls">Controls</button>
       <button id="toggle-street-sidebar" type="button" aria-controls="street-sidebar" aria-expanded="false">Sidebar</button>
       <button id="street-close" type="button">Map <kbd>Esc</kbd></button>
     </header>
@@ -174,11 +175,6 @@
       <canvas id="street-canvas" tabindex="0" aria-label="First-person view of recovered gameplay geometry"></canvas>
       <aside id="street-sidebar" aria-label="Explore settings" hidden>
         <h3>Explore settings</h3>
-        <details class="street-help">
-          <summary>Controls</summary>
-          <p>WASD to move · Shift to run · Space to jump · Double-tap Space to toggle flight.<br>
-            While flying, Space goes up, Shift goes down, and scrolling changes speed. Drag or use arrows to look.</p>
-        </details>
         <button id="street-flight" type="button" aria-pressed="false" disabled>Flight mode</button>
         <button id="street-lighting" type="button" aria-pressed="false" aria-controls="street-clock street-clouds">Lighting</button>
         <label id="street-clock" hidden>Time of day <output id="street-time-label" for="street-time">16:30</output>
@@ -213,6 +209,19 @@
       <button id="street-copy-view" type="button" title="Copy coordinates, heading and pitch" disabled>Copy view</button>
       <span id="street-source">Local meshes · Viewer materials</span>
     </footer>
+    <dialog id="street-controls" aria-labelledby="street-controls-title">
+      <h2 id="street-controls-title">Explore controls</h2>
+      <dl class="street-controls-keys">
+        <dt><kbd>WASD</kbd></dt><dd>Move</dd>
+        <dt>Drag or <kbd>Arrow keys</kbd></dt><dd>Look around</dd>
+        <dt><kbd>Shift</kbd> / <kbd>Space</kbd></dt><dd>Run / jump</dd>
+        <dt>Double-tap <kbd>Space</kbd></dt><dd>Toggle flight</dd>
+        <dt><kbd>Space</kbd> / <kbd>Shift</kbd></dt><dd>Fly up / down</dd>
+        <dt>Scroll while flying</dt><dd>Change flight speed</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Open the map</dd>
+      </dl>
+      <button id="street-controls-close" class="primary" type="button" autofocus>Got it</button>
+    </dialog>
   </dialog>
   <section id="landing" class="landing" aria-labelledby="landing-title">
     <div class="sunset" aria-hidden="true"><div class="sun"></div><div class="water"></div></div>

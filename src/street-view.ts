@@ -1795,6 +1795,8 @@ export class StreetView {
   private rollerTarget?:string;
   private frame=0;
   private paused=false;
+  private windowBlurred=false;
+  private deferredTextures:Parameters<StreetWorld["installTexture"]>[]=[];
   private parallaxSample=0;
   private sceneDirty=true;
   private lastCamera?:readonly [number,number,number,number,number];
@@ -1902,7 +1904,15 @@ export class StreetView {
         this.draw();
       }
     },{signal});
-    document.addEventListener("visibilitychange",()=>{if(!document.hidden)this.draw();},{signal});
+    document.addEventListener("visibilitychange",()=>this.updateActivity(),{signal});
+    window.addEventListener("blur",()=>{
+      this.windowBlurred=true;
+      this.updateActivity();
+    },{signal});
+    window.addEventListener("focus",()=>{
+      this.windowBlurred=false;
+      this.updateActivity();
+    },{signal});
     this.reducedMotion.addEventListener("change",()=>this.draw(),{signal});
     canvas.addEventListener("pointerdown",event=>{
       if(event.button!==0)return;
@@ -2022,6 +2032,7 @@ export class StreetView {
   }
 
   refreshTextures(){
+    this.deferredTextures.length=0;
     this.world?.refreshTextures();
   }
 
@@ -2231,8 +2242,15 @@ export class StreetView {
     if(redraw||zBefore!==this.z)this.draw();
   }
   installTexture(id:string,image:StreetTextureImage|null,ground:boolean,compressed?:StreetBlockTexture,cube?:StreetCubeTexture,roadHeight?:RoadHeightMip[]){
-    this.world?.installTexture(id,image,ground,compressed,cube,roadHeight);
-    this.world?.refillTextureSlots();
+    if(!this.world)return;
+    if(this.backgrounded||this.deferredTextures.length){
+      // Leave these requests pending in StreetWorld until their replies can be
+      // uploaded. The existing read slots bound the replies retained here.
+      this.deferredTextures.push([id,image,ground,compressed,cube,roadHeight]);
+    }else{
+      this.world.installTexture(id,image,ground,compressed,cube,roadHeight);
+      this.world.refillTextureSlots();
+    }
     this.draw();
   }
   setNavigation(enabled:boolean){
@@ -2317,23 +2335,52 @@ export class StreetView {
     ctx.drawImage(this.aerialCanvas,x,y,span*density,span*density,0,0,canvas.width,canvas.height);
     this.minimapPosition=[x,y];
   }
-  setPaused(paused:boolean){
-    this.paused=paused;
+  private get backgrounded(){return document.hidden||this.windowBlurred;}
+
+  private stopFrame(){
     this.keys.clear();
+    this.drag=false;
     this.lastSpace=-Infinity;
-    if(paused){
-      cancelAnimationFrame(this.frame);
-      this.frame=0;
-      this.hud.fps.reset();
-    }else{
+    this.nextWaterFrame=Infinity;
+    cancelAnimationFrame(this.frame);
+    this.frame=0;
+    clearTimeout(this.motionTimer);this.motionTimer=0;
+    clearTimeout(this.shadowTimer);this.shadowTimer=0;
+    clearTimeout(this.texturePlanTimer);this.texturePlanTimer=0;
+    this.hud.fps.reset();
+  }
+
+  private updateActivity(){
+    if(this.backgrounded)this.stopFrame();
+    else{
       this.time=performance.now();
       this.draw();
+    }
+  }
+
+  setPaused(paused:boolean){
+    this.paused=paused;
+    if(paused)this.stopFrame();
+    else{
+      this.updateActivity();
       this.canvas.focus();
     }
   }
   private draw(sceneChanged=true){
     if(sceneChanged)this.sceneDirty=true;
-    if(!this.paused&&!this.frame)this.frame=requestAnimationFrame(now=>this.render(now));
+    if(!this.paused&&!this.backgrounded&&!this.frame)this.frame=requestAnimationFrame(now=>this.render(now));
+  }
+
+  private uploadDeferredTextures(){
+    if(!this.deferredTextures.length||!this.world)return;
+    // Keep the first frame responsive even if several reads finished while away.
+    const until=performance.now()+3;
+    do{
+      this.world.installTexture(...this.deferredTextures.shift()!);
+    }while(this.deferredTextures.length&&performance.now()<until);
+    this.sceneDirty=true;
+    if(this.deferredTextures.length)this.draw(false);
+    else this.world.refillTextureSlots();
   }
 
   private animateWater(visible:boolean,now:number,tick:boolean){
@@ -2406,6 +2453,8 @@ export class StreetView {
 
   private render(now:number){
     this.frame=0;
+    if(this.paused||this.backgrounded)return;
+    this.uploadDeferredTextures();
     const {keys,gl,canvas}=this,dt=Math.min(.04,(now-this.time)/1000);
     this.time=now;
     const doorMoving=this.world?.updateRollers(now);
@@ -2666,6 +2715,7 @@ export class StreetView {
     if(this.status.textContent!==status)this.status.textContent=status;
   }
   dispose(){
+    this.deferredTextures.length=0;
     this.hud.fps.reset();
     this.events.abort();
     this.rollerAction.remove();
