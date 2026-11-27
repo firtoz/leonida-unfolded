@@ -94,9 +94,9 @@ export class StreetRpf9 {
     return (await directory).linkedMaps(mapSlot);
   }
 
-  private async prepareChild(base:number,end:number){
+  private async prepareChild(base:number,end:number,header?:Uint8Array){
     const prepare=await (this.opening??=openRpf9Preparer(this.executable));
-    return prepare(this.archive,base,end-base);
+    return prepare(this.archive,base,end-base,header);
   }
 
   async mountedMembers(mount:Rpf9Mount,types?:ReadonlySet<number>):Promise<StreetArchiveMember[]> {
@@ -224,8 +224,15 @@ export class StreetRpf9 {
   }
 
   private async loadListing(base: number, end: number, types?: ReadonlySet<number>): Promise<Member[]> {
-    if (base && view(await this.archive.read(base, 4)).getUint32(0, true) !== signature) return [];
-    const directory = base ? await this.prepareChild(base,end) : await this.prepareRoot();
+    let header:Uint8Array|undefined;
+    if(base){
+      // Valid child extents already need this header for directory preparation.
+      const fullHeader=end-base>=64&&end<=this.archive.file.size;
+      const prefix=await this.archive.read(base,fullHeader?64:4);
+      if(view(prefix).getUint32(0,true)!==signature)return [];
+      if(fullHeader)header=prefix;
+    }
+    const directory = base ? await this.prepareChild(base,end,header) : await this.prepareRoot();
     this.mountEnds.set(base,end);
     const members: Member[] = [];
     for (let slot = 0; slot < directory.layout.entryCount; slot++) {

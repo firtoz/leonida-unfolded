@@ -202,9 +202,9 @@ export async function openRpf9Preparer(executable: Archive) {
     }
   }
 
-  async function prepareDirectory(archive: Archive, base: number, limit: number) {
+  async function prepareDirectory(archive: Archive, base: number, limit: number, header?:Uint8Array) {
     if (limit < 64 || base + limit > archive.file.size) throw new Error("Invalid RPF9 archive extent");
-    const header = await archive.read(base, 64);
+    header ??= await archive.read(base, 64);
     const layout = readRpf9DirectoryLayout(header, limit);
     const { body, bodyBytes, bodySuffixBytes, narrowEnd, wideEnd } = layout;
     if (layout.protectionTag !== 9 || !(header[0x2d] & 1) || wideEnd > 64 * 1024 * 1024 ||
