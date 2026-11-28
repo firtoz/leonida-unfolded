@@ -194,6 +194,8 @@ export class TerrainView {
     this.draw();
   }
 
+  updateNativeColors(scene:NativeScene){this.native?.updateVertexColors(scene.vertices);}
+
   private texture(unit:number,filter:number){
     const {gl}=this;
     const texture=gl.createTexture();

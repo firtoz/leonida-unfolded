@@ -255,6 +255,13 @@ progress{width:100%;accent-color:var(--accent)}
   padding:.37rem .65rem;display:grid;grid-template-columns:15ch 14ch minmax(0,1fr);gap:.65rem;color:var(--muted);
   font:.77rem/1.2 ui-monospace,monospace;overflow:hidden;white-space:nowrap;pointer-events:none}
 .map-status span{overflow:hidden;text-overflow:ellipsis}
+#pause-map-building-legend{position:absolute;left:12px;bottom:49px;z-index:1;max-width:calc(100% - 24px);
+  box-sizing:border-box;display:flex;flex-wrap:wrap;gap:.4rem .85rem;padding:.45rem .65rem;
+  border:1px solid var(--border);border-radius:.45rem;background:#21172ef5;color:var(--muted);font-size:.78rem;pointer-events:none}
+#pause-map-building-legend[hidden]{display:none}
+#pause-map-building-legend span{display:inline-flex;align-items:center;gap:.35rem}
+#pause-map-building-legend i{width:.78em;height:.78em;border-radius:.15em;background:var(--pause-map-entry)}
+#pause-map-building-legend span+span i{background:var(--pause-map-building)}
 #sidebar{top:77px;right:12px;bottom:12px;width:min(350px,calc(100vw - 24px));z-index:2;overflow:auto;border-radius:.65rem;padding:1rem;scrollbar-color:#81567b transparent}
 .sidebar-heading{font-size:1.1rem;margin:0 0 .65rem}
 .sidebar-section-title{font-size:.89rem;margin:0 0 .55rem}
@@ -327,10 +334,14 @@ progress{width:100%;accent-color:var(--accent)}
 #street-view header,#street-view footer{display:flex;align-items:center;gap:.7rem;padding:.7rem 1rem}
 #street-view header{height:3.5rem;box-sizing:border-box}
 #street-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#street-controls{width:min(26rem,calc(100% - 2rem));max-height:calc(100% - 2rem);overflow:auto;
+#street-controls,#map-destination{width:min(26rem,calc(100% - 2rem));max-height:calc(100% - 2rem);overflow:auto;
   padding:1.2rem;color:var(--ink);background:var(--panel);border:1px solid var(--border);
   border-radius:.85rem;box-shadow:0 14px 48px #100a1bb3}
-#street-controls::backdrop{background:#100a1b9c}
+#street-controls::backdrop,#map-destination::backdrop{background:#100a1b9c}
+#map-destination h2{font-size:1.2rem}
+#map-destination-form{display:grid;gap:.45rem;margin-top:1rem}
+#map-destination-form label{color:var(--muted);font-size:.82rem}
+.map-destination-actions{display:flex;justify-content:flex-end;gap:.45rem;margin-top:.4rem}
 #street-view #street-controls-title{font-size:1.2rem}
 .street-controls-keys{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:.65rem .85rem;margin:1rem 0}
 .street-controls-keys dt,.street-controls-keys dd{font-size:.85rem}

@@ -40,6 +40,7 @@ type Aperture={polygon:ScreenPoint[];bounds:ScreenRect};
 const screenEpsilon=1e-8;
 const fullScreen:Aperture={polygon:[[-1,-1],[1,-1],[1,1],[-1,1]],bounds:[-1,-1,1,1]};
 export const interiorClipEdgeCapacity=48;
+export const interiorPortalVisibilityOnly=4;
 
 export function packInteriorClip(openings:readonly Aperture[]){
   const distinct=[...new Set(openings)];
@@ -172,7 +173,7 @@ export function trackInteriorCamera(scene:InteriorScene,eye:Eye,previous?:Interi
       let nextRoom=room;
       for(const {from,to,flags=0,corners,plane:[nx,ny,nz,offset]} of scene.portals){
         // A portal can be usable for visibility while excluded from room tracking.
-        if((flags&4)!==0||from===to||from!==room&&to!==room)continue;
+        if((flags&interiorPortalVisibilityOnly)!==0||from===to||from!==room&&to!==room)continue;
         const sign=from===room?1:-1;
         const start=sign*(nx*old[0]+ny*old[1]+nz*old[2]-offset);
         const end=sign*(nx*local[0]+ny*local[1]+nz*local[2]-offset);

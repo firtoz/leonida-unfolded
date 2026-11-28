@@ -3,12 +3,14 @@ import { CELL } from "./recover";
 import { readCarvedZlib } from "./street-index-scan";
 import { readRpf9DirectoryLayout } from "./rpf9-directory";
 import { emptyBounds, extendBounds, groundHelipads, rangeBounds, type NativeBatch, type NativePart, type NativeTile } from "./native-spatial";
+import { pauseMapBuildingMaterial, pauseMapVertexLayout, pauseMapBuildingPalette } from "./pause-map-constants";
 
 export type NativeScene = {
   vertices:ArrayBuffer;
   indices:Uint32Array<ArrayBuffer>;
   tiles:NativeTile[];
   parts:number;
+  entryBuildings?:number;
 };
 
 type Color = readonly [number,number,number];
@@ -21,7 +23,7 @@ function materialColor(name:string,index:number):Color {
   if(name.startsWith("terrain_"))return landColors[index]??landColors[0];
   if(name==="water_shallows_std")return index===10?[76,160,178]:[60,137,163];
   if(name.startsWith("water_"))return ocean;
-  if(name==="buildings_std")return [163,167,176];
+  if(name===pauseMapBuildingMaterial)return pauseMapBuildingPalette.ordinary;
   if(name==="routes_rail_std")return [167,148,152];
   if(name==="routes_lanes_std")return [240,231,211];
   if(name==="routes_tunnels_std")return [167,156,164];
@@ -59,8 +61,9 @@ function mesh(g:DataView,v:number,i:number,bounds:number[],name:string):NativePa
     min[0]=Math.min(min[0],x);min[1]=Math.min(min[1],y);min[2]=Math.min(min[2],z);
     max[0]=Math.max(max[0],x);max[1]=Math.max(max[1],y);max[2]=Math.max(max[2],z);
     const rgb=materialColor(name,g.getUint8(ids+j*4));
-    for(let c=0;c<3;c++)colors[j*16+12+c]=Math.round(rgb[c]*g.getUint8(tints+j*4+c)/255);
-    colors[j*16+15]=surface;
+    const colorOffset=j*pauseMapVertexLayout.strideBytes+pauseMapVertexLayout.colorOffsetBytes;
+    for(let c=0;c<3;c++)colors[colorOffset+c]=Math.round(rgb[c]*g.getUint8(tints+j*4+c)/255);
+    colors[colorOffset+3]=surface;
   }
   // Quantizers sometimes permute axes. Validate XYZ against the drawable's own bounds.
   const error=(p:readonly number[])=>Math.max(...p.map((axis,j)=>
@@ -150,7 +153,8 @@ const pageLimit=1024*1024;
 const nextPage=(at:number,stored:number)=>Math.ceil((at+stored)/16)*16;
 const decoderName=/maptile_3d01_[a-z_]+\.#dr\0/;
 
-export async function loadNativeMap(archive:Archive,progress:(done:number,total:number)=>void):Promise<NativeScene>{
+export async function loadNativeMap(archive:Archive,progress:(done:number,total:number)=>void,
+  buildingPart?:(part:NativePart,firstVertex:number)=>void):Promise<NativeScene>{
   const header=await archive.read(pauseMapMountOffset,64);
   const layout=readRpf9DirectoryLayout(header,archive.file.size-pauseMapMountOffset);
   const bytes=await archive.read(pauseMapMountOffset,
@@ -220,7 +224,8 @@ export async function loadNativeMap(archive:Archive,progress:(done:number,total:
     const bounds=emptyBounds(),first=index;
     const clusters=new Map<string,{part:NativePart;offset:number;range:NativeBatch}[]>();
     for(const part of bucket){
-      packed.set(new Uint8Array(part.vertices.buffer),vertex*16);
+      packed.set(new Uint8Array(part.vertices.buffer),vertex*pauseMapVertexLayout.strideBytes);
+      if(part.name===pauseMapBuildingMaterial)buildingPart?.(part,vertex);
       extendBounds(bounds,part.bounds);
       for(const span of part.spans){
         const range={...span,bounds:rangeBounds(part,span.first,span.count)};

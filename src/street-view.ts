@@ -10,7 +10,7 @@ import { CELL, type Rect } from "./recover";
 import { streetHorizon, streetWaterBackdropUnit, StreetWorld } from "./street-world";
 import { overviewTerrainTileSize, streetNearPlane } from "./street-grid";
 import { makeProgram, uniforms } from "./view-gl";
-import { defaultStreetFov, headingDegrees, maximumStreetPitch, streetProjection, type StreetDestination } from "./street-destination";
+import { defaultStreetFov, headingDegrees, maximumStreetPitch, streetDestinationAngles, streetProjection, type StreetDestination } from "./street-destination";
 import {standardPaletteMaterial,terrainDetailUnits,type StreetBlockTexture,type StreetTextureImage} from "./street-terrain-material";
 import { roadDetailFarDepth, roadDetailNearDepth, type RoadHeightMip } from "./street-road-material";
 import {streetRoomCubeUnit,type StreetCubeTexture} from "./street-cube-texture";
@@ -1952,7 +1952,8 @@ export class StreetView {
     private mesh:StreetMesh|{origin:[number,number,number];request:(point:readonly [number,number],known:string[])=>void;
       requestTexture:(id:string,ground:boolean,compression?:number)=>void;requestNavigation?:(point:readonly [number,number],known:string[])=>void;
       requestVegetation?:(point:readonly [number,number],known:string[],lookOnly?:true)=>void;
-      streamView?:(view:StreetStreamView)=>void;karstYaw?:number;pickedSpawn?:StreetSpawn;ocean?:StreetOceanSource},
+      streamView?:(view:StreetStreamView)=>void;karstYaw?:number;pickedSpawn?:StreetSpawn;ocean?:StreetOceanSource;
+      initialDestination?:StreetDestination},
     private status:HTMLElement,
     private hud:{bearing:HTMLElement;minimap:HTMLCanvasElement;marker:HTMLElement;fps:StreetFpsChart;flight?:HTMLButtonElement;roadName?:(x:number,y:number,z:number)=>void},
     private imagery?:(canvas:HTMLCanvasElement,rect:Rect,useOverview:boolean)=>boolean){
@@ -1995,7 +1996,7 @@ export class StreetView {
     if("vertices" in mesh)this.upload(mesh);
     gl.vertexAttrib2f(9,1,0);
     gl.enable(gl.DEPTH_TEST);
-    this.reset();
+    this.reset("request" in mesh?mesh.initialDestination:undefined);
     const {signal}=this.events;
     const door=this.rollerAction;
     door.type="button";
@@ -2284,10 +2285,17 @@ export class StreetView {
     return Number.isFinite(best)?best:null;
   }
 
-  reset(){
+  reset(initialDestination?:StreetDestination){
     this.world?.resetInteriorCamera();
     this.flying=false;this.airborne=false;this.verticalSpeed=0;
     this.flightSpeed=defaultFlightSpeed;this.lastSpace=-Infinity;this.keys.clear();
+    const defaultYaw=Math.atan2(forward[1],forward[0]),defaultPitch=-.07;
+    if(initialDestination){
+      const {yaw,pitch,fov}=streetDestinationAngles(initialDestination,{yaw:defaultYaw,pitch:defaultPitch,fov:this.fov});
+      this.teleportEntry={position:[0,0,0],yaw,pitch};
+      this.fov=fov??defaultStreetFov;
+      this.initialRegion=false;
+    }
     if(this.world&&this.teleportEntry){
       const {position,yaw,pitch}=this.teleportEntry;
       [this.x,this.y,this.z]=position;
@@ -2304,18 +2312,18 @@ export class StreetView {
       const picked="pickedSpawn" in this.mesh?this.mesh.pickedSpawn:undefined;
       this.flying=picked?.flying===true;
       const pickedHeight=picked&&!picked.flying?this.pickedFloor(picked.matchHeight):null;
-      const start=picked?pickedHeight===null?null:{x:0,y:0,z:pickedHeight,yaw:Math.atan2(forward[1],forward[0])}:
+      const start=picked?pickedHeight===null?null:{x:0,y:0,z:pickedHeight,yaw:defaultYaw}:
         this.karstYaw===undefined?saved??this.world.spawn(-this.mesh.origin[2])??this.world.spawn():
         caveHeight!==null&&Math.abs(caveHeight)<=.35?{x:0,y:0,z:caveHeight,yaw:this.karstYaw}:null;
       if(start&&this.karstYaw===undefined&&this.initialRegion&&!this.hasStreetInput)this.entrySpawn=start;
       this.hasFloor=start!==null;
       this.x=start?.x??0;this.y=start?.y??0;this.z=start?.z??0;
-      this.yaw=start?.yaw??Math.atan2(forward[1],forward[0]);
+      this.yaw=start?.yaw??defaultYaw;
     }else{
       this.x=-32*forward[0];this.y=-32*forward[1];this.z=-1.4;this.z=this.surface(this.x,this.y)??-1.4;
-      this.yaw=Math.atan2(forward[1],forward[0]);
+      this.yaw=defaultYaw;
     }
-    this.pitch=-.07;
+    this.pitch=defaultPitch;
     this.draw();this.canvas.focus();
   }
   private hasFloor=false;

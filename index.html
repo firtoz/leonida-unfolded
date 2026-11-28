@@ -31,6 +31,7 @@
       <div class="wordmark">Leonida Unfolded</div>
       <div class="map-actions">
         <button id="resume-street" class="primary" type="button" hidden>Resume</button>
+        <button id="map-explore-xyz" type="button" aria-haspopup="dialog" aria-controls="map-destination" disabled>Explore XYZ</button>
         <button id="toggle-sidebar" type="button" aria-controls="sidebar" aria-expanded="true">Sidebar</button>
       </div>
     </div>
@@ -158,12 +159,27 @@
       <p id="notice" role="status"></p>
     </aside>
     <span id="map-road-name" class="location-chip" hidden></span>
+    <aside id="pause-map-building-legend" aria-label="Building access" hidden>
+      <span><i aria-hidden="true"></i>Mapped exterior entry</span>
+      <span><i aria-hidden="true"></i>Other building</span>
+    </aside>
     <footer class="map-status"><span id="position"></span><span id="scale"></span><span id="terrain-status" role="status" hidden></span></footer>
     <aside class="load-overlay" id="load-overlay" aria-labelledby="load-title" hidden>
       <h2 id="load-title">Loading</h2>
       <ul id="load-jobs"></ul>
     </aside>
   </main>
+  <dialog id="map-destination" aria-labelledby="map-destination-title">
+    <h2 id="map-destination-title">Explore at coordinates</h2>
+    <form id="map-destination-form">
+      <label for="map-xyz">X, Y, Z, heading°, pitch°, vertical FOV°</label>
+      <input id="map-xyz" required autofocus autocomplete="off" spellcheck="false">
+      <div class="map-destination-actions">
+        <button id="map-destination-cancel" type="button">Cancel</button>
+        <button class="primary" type="submit">Explore</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="street-view" aria-labelledby="street-title">
     <header>
       <h2 id="street-title">Explore</h2>

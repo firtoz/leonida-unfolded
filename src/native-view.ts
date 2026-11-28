@@ -1,3 +1,4 @@
+import { pauseMapVertexLayout } from "./pause-map-constants";
 import type { Rect } from "./recover";
 import type { NativeScene } from "./native-map";
 import type { Bounds, NativeTile } from "./native-spatial";
@@ -103,11 +104,17 @@ export class NativeView {
     gl.bindBuffer(gl.ARRAY_BUFFER,this.vertices);
     gl.bufferData(gl.ARRAY_BUFFER,scene.vertices,gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0,3,gl.FLOAT,false,16,0);
+    gl.vertexAttribPointer(0,3,gl.FLOAT,false,pauseMapVertexLayout.strideBytes,0);
     gl.enableVertexAttribArray(1);
-    gl.vertexAttribPointer(1,4,gl.UNSIGNED_BYTE,true,16,12);
+    gl.vertexAttribPointer(1,4,gl.UNSIGNED_BYTE,true,pauseMapVertexLayout.strideBytes,pauseMapVertexLayout.colorOffsetBytes);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,this.indices);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,scene.indices,gl.STATIC_DRAW);
+  }
+
+  updateVertexColors(vertices:ArrayBuffer){
+    const {gl}=this;
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.vertices);
+    gl.bufferSubData(gl.ARRAY_BUFFER,0,vertices);
   }
 
   paint(camera:Camera,bounds:Rect,roadRect:Rect,roadOpacity:number){

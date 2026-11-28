@@ -6,6 +6,14 @@ export const defaultStreetFov=2*Math.atan(1/1.38)*180/Math.PI;
 export const streetProjection=(fov=defaultStreetFov)=>1/Math.tan(fov*Math.PI/360);
 export const headingDegrees=(yaw:number)=>((90-yaw*180/Math.PI)%360+360)%360;
 
+export function streetDestinationAngles({heading,pitch,fov}:StreetDestination,current:{yaw:number;pitch:number;fov?:number}){
+  return {
+    yaw:heading===undefined?current.yaw:(90-heading%360)*Math.PI/180,
+    pitch:pitch===undefined?current.pitch:Math.max(-maximumStreetPitch,Math.min(maximumStreetPitch,pitch*Math.PI/180)),
+    fov:fov??current.fov,
+  };
+}
+
 export function formatStreetDestination({position,heading,pitch,fov}:StreetDestination&{heading:number;pitch:number}){
   const values=[...position,heading,pitch];
   if(fov!==undefined)values.push(fov);

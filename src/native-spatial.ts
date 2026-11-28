@@ -1,3 +1,4 @@
+import { pauseMapBuildingMaterial } from "./pause-map-constants";
 import { CELL } from "./recover";
 
 export type Bounds = [number,number,number,number,number,number];
@@ -40,7 +41,7 @@ function supportAt(parts:NativePart[],x:number,y:number,authored:number){
     const [left,top,,right,bottom]=part.bounds;
     if(x<left||x>right||y<top||y>bottom)continue;
     const {vertices,indices}=part;
-    const ceiling=part.name==="buildings_std"?authored+2/CELL:Infinity;
+    const ceiling=part.name===pauseMapBuildingMaterial?authored+2/CELL:Infinity;
     for(let i=0;i<indices.length;i+=3){
       const a=indices[i]*4,b=indices[i+1]*4,c=indices[i+2]*4;
       const ax=vertices[a],ay=vertices[a+1],az=vertices[a+2];
@@ -64,7 +65,7 @@ function supportAt(parts:NativePart[],x:number,y:number,authored:number){
 }
 
 export function groundHelipads(parts:NativePart[]){
-  const land=parts.filter(part=>part.name==="buildings_std"||part.name.startsWith("terrain_"));
+  const land=parts.filter(part=>part.name===pauseMapBuildingMaterial||part.name.startsWith("terrain_"));
   const water=parts.filter(part=>part.name.startsWith("water_"));
   const levels=new Map<number,{part:NativePart;offset:number;x:number;y:number}[]>();
   const pads=parts.filter(part=>part.name==="helipads_std");

@@ -5,6 +5,7 @@ import { overviewLayers } from "./layers";
 import { loadDistricts, loadEnglish } from "./districts";
 import { loadPlaces } from "./places";
 import { loadNativeMap } from "./native-map";
+import type { NativePart } from "./native-spatial";
 import { bc1, bitmap, readMip, sample, type Image } from "./texture";
 import { describe, score, type Features } from "./matching";
 import type { Event, Request } from "./protocol";
@@ -391,9 +392,29 @@ worker.onmessage=(event:MessageEvent<Request>)=>{
   if(request.kind==="nativeMap"){
     const archive=state?.archives.get("levels.rpf");
     if(!archive){send({kind:"nativeFailure",message:"levels.rpf is unavailable."});return;}
-    void loadNativeMap(archive,(done,total)=>send({kind:"nativeProgress",done,total})).then(scene=>{
+    const executable=folder?.[rpf9ExecutableName],common=state?.archives.get("common.rpf")?.file;
+    const active=()=>state?.archives.get("levels.rpf")===archive;
+    const entries=executable&&common?import("./street-native-catalog").then(({StreetNativeCatalog})=>
+      new StreetNativeCatalog(archive.file,executable,common).queryPauseMapEntries(active)).catch(()=>undefined):undefined;
+    const buildingParts=new Map<NativePart,number>();
+    void loadNativeMap(archive,(done,total)=>{
+      if(active())send({kind:"nativeProgress",done,total});
+    },entries?(part,first)=>buildingParts.set(part,first):undefined).then(scene=>{
+      if(!active())return;
       send({kind:"nativeMap",scene},[scene.vertices,scene.indices.buffer]);
-    }).catch(error=>send({kind:"nativeFailure",message:(error as Error).message}));
+      if(entries)void entries.then(async mapped=>{
+        if(!mapped?.length||!active())return;
+        const {shadePauseMapEntries}=await import("./pause-map-buildings");
+        if(!active())return;
+        const matched:number[]=[];
+        const buildings=shadePauseMapEntries([...buildingParts.keys()],mapped,(part,index)=>{
+          matched.push(buildingParts.get(part)!+index);
+        });
+        if(!buildings)return;
+        const vertices=Uint32Array.from(matched);
+        send({kind:"nativeMapEntries",buildings,vertices},[vertices.buffer]);
+      }).catch(()=>{});
+    }).catch(error=>{if(active())send({kind:"nativeFailure",message:(error as Error).message});});
     return;
   }
   const job=request.kind==="import"?start(request.files):request.kind==="rank"?rank(request):

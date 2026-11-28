@@ -59,6 +59,7 @@ export type Event =
   | { kind:"roadNames"; roads:NamedRoad[] }
   | { kind:"nativeProgress"; done:number; total:number }
   | { kind:"nativeMap"; scene:NativeScene }
+  | { kind:"nativeMapEntries"; buildings:number; vertices:Uint32Array<ArrayBuffer> }
   | { kind:"nativeFailure"; message:string }
   | { kind:"streetSpawnProbe"; serial:number; height:number|null }
   | { kind:"streetImported" }

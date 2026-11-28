@@ -17,6 +17,7 @@ import { streetDistance } from "./street-priority";
 import { composePlacement } from "./street-placement";
 import { readInteriorCollision } from "./street-interior-collision";
 import { decodeStaticCollision } from "./street-collision";
+import { pauseMapEntries, type PauseMapEntry } from "./pause-map-buildings";
 
 const worldCollisionTypes=new Set([6]);
 const worldCollisionMount=({path}:{path:string})=>path.includes("/map/environment/")||path.includes("/map/terrain/");
@@ -332,6 +333,35 @@ export class StreetNativeCatalog {
       }
     }
     return active()?assets:[];
+  }
+
+  async queryPauseMapEntries(active:()=>boolean):Promise<PauseMapEntry[]>{
+    await this.prepare();
+    if(!active())return [];
+    // Entry coloring only needs portal metadata. Leave room geometry, props,
+    // and collision to the street viewer's local interior queries.
+    const candidates=this.maps.filter(map=>map.interiorSpatial||this.interiorMounts.has(map.mountBase)||
+      this.interiorPacksFor(map).some(pack=>this.interiorMounts.has(pack.mountBase)));
+    const maps=new Map(candidates.map(map=>[map.offset,map]));
+    const placements=new Map<number,StreetInteriorInstance[]>();
+    await this.directory.readMembers(candidates,"sample",active,(pages,data)=>{
+      const instances=readStreetInteriorInstances(data);
+      if(instances.length)placements.set(pages[0][0],instances);
+    });
+    const entries:PauseMapEntry[]=[];
+    for(const [offset,instances] of placements){
+      const map=maps.get(offset);
+      if(!map)continue;
+      const packs=this.interiorPacksFor(map);
+      for(const instance of instances)for(const pack of packs){
+        if(!active())return [];
+        const definition=(await this.loadInteriorPack(pack)).find(row=>row.key===instance.key&&row.name===instance.hash);
+        if(!definition)continue;
+        entries.push(...pauseMapEntries(definition,instance.placement));
+        break;
+      }
+    }
+    return active()?entries:[];
   }
 
   async queryInteriors(eye:readonly [number,number,number],radius:number,active:()=>boolean){

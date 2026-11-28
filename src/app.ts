@@ -13,12 +13,13 @@ import { hex } from "./archive";
 import { DistrictView } from "./district-view";
 import { TerrainView, type TerrainSource } from "./terrain-view";
 import { StreetView, type StreetPose, type StreetSpawn } from "./street-view";
-import { formatStreetDestination, maximumStreetPitch, parseStreetDestination } from "./street-destination";
+import { formatStreetDestination, parseStreetDestination, streetDestinationAngles, type StreetDestination } from "./street-destination";
 import type { StreetChunk } from "./street-mesh";
 import type { Event, MatchSide, Request, SketchPoint } from "./protocol";
 import { LoadingOverlay } from "./loading-overlay";
 import { pickWalkSurface, type Point3 } from "./walk-surface";
 import type { NativeScene } from "./native-map";
+import { pauseMapBuildingPalette, pauseMapVertexLayout } from "./pause-map-constants";
 import { NativeStreetImagery } from "./native-street-imagery";
 import type { StreetStreamView } from "./street-priority";
 import { dynamicTerrainPrefix } from "./street-terrain-material";
@@ -39,6 +40,9 @@ const terrainCanvas=get<HTMLCanvasElement>("terrain-mesh");
 const terrainButton=button("show-terrain"),terrainTilt=input("terrain-tilt"),terrainWater=input("terrain-water");
 const terrainRelief=get<HTMLSelectElement>("terrain-relief");
 const terrainStatus=get("terrain-status");
+const pauseMapBuildingLegend=get("pause-map-building-legend");
+pauseMapBuildingLegend.style.setProperty("--pause-map-entry",`rgb(${pauseMapBuildingPalette.exteriorEntry.join(" ")})`);
+pauseMapBuildingLegend.style.setProperty("--pause-map-building",`rgb(${pauseMapBuildingPalette.ordinary.join(" ")})`);
 const streetDialog=get<HTMLDialogElement>("street-view");
 const streetControls=get<HTMLDialogElement>("street-controls");
 const streetControlsButton=button("street-controls-open");
@@ -85,6 +89,7 @@ function updateMapRoadName(){
   if(mapRoadName.textContent!==(name??""))setRoadChip(mapRoadName,name);
 }
 const streetDestination=get<HTMLFormElement>("street-destination"),streetXYZ=input("street-xyz");
+const mapDestination=get<HTMLDialogElement>("map-destination"),mapXYZ=input("map-xyz");
 let street:StreetView|null=null;
 let streetEnvironment:StreetEnvironment|undefined,requestedStreetEnvironment=false;
 let streetCloudNoise:Uint8Array<ArrayBuffer>|undefined;
@@ -291,6 +296,7 @@ function importFailure(message:string,issues:Issue[]=[]){
 }
 function changedInputs(){
   setWalkPlacement(false);nativeScene=null;
+  pauseMapBuildingLegend.hidden=true;
   fpsInputReady=false;
   showFpsAvailability("Add the matching Xbox Series executable.");
   selectedIndex();
@@ -305,6 +311,7 @@ function changedInputs(){
   mapBehindStreet=false;deferredMapMode=null;
   terrain?.dispose();terrain=null;terrainSource=null;terrainButton.disabled=true;
   if(streetControls.open)streetControls.close();
+  if(mapDestination.open)mapDestination.close();
   if(streetDialog.open)streetDialog.close();
   if(street)releaseStreet();
   worldEntry=null;worldSerial++;
@@ -323,7 +330,7 @@ function changedInputs(){
   landing.hidden=false;workspace.hidden=true;
 }
 function showFpsAvailability(message:string){
-  for(const id of ["walk-here","walk-karst","show-street"]){
+  for(const id of ["walk-here","walk-karst","show-street","map-explore-xyz"]){
     const control=button(id);
     control.disabled=!fpsInputReady;
     control.title=message||(control===exploreButton?"Drag the explorer onto the map or click to choose a spot":"");
@@ -531,6 +538,15 @@ function handle(event:Event){
           terrain.installNative(event.scene);
           nativeReady=true;syncProjection();
         }catch(error){nativeFailed((error as Error).message);}
+      }
+      break;
+    case "nativeMapEntries":
+      if(nativeScene){
+        const colors=new Uint8Array(nativeScene.vertices);
+        for(const vertex of event.vertices)colors.set(pauseMapBuildingPalette.exteriorEntry,vertex*pauseMapVertexLayout.strideBytes+pauseMapVertexLayout.colorOffsetBytes);
+        nativeScene.entryBuildings=event.buildings;
+        terrain?.updateNativeColors(nativeScene);
+        syncProjection();
       }
       break;
     case "streetSpawnProbe":
@@ -909,6 +925,7 @@ function terrainMessage(message:string){
 function syncProjection(force=false){
   if(!board)return;
   const tilt=Number(terrainTilt.value),native=Boolean(board.opacity.native);
+  pauseMapBuildingLegend.hidden=!(native&&nativeReady&&nativeScene?.entryBuildings);
   const projected=force||raised||tilt>0||Boolean(terrain?.angle)||native;
   if(projected){
     if(!terrain){
@@ -922,6 +939,7 @@ function syncProjection(force=false){
         if(roads)terrain.installRoads(roads.image,roads.rect);
       }catch(error){
         raised=false;terrainTilt.value="0";board.opacity.native=0;
+        pauseMapBuildingLegend.hidden=true;
         if(!board.opacity.atlas&&!board.opacity.height){board.opacity.atlas=100;board.opacity.coarse=100;}
         terrainMessage((error as Error).message);refreshLayers();
         loadVisibleLayers();board.draw();
@@ -1477,12 +1495,12 @@ input("edits").onchange=async()=>{
   }catch(error){notice((error as Error).message);}
 };
 
-function mountStreet(){
+function mountStreet(initialDestination?:StreetDestination){
   if(street||!worldEntry)return;
   nextStreetTextureEpoch();
   const exe=files[rpf9ExecutableName],common=files["common.rpf"],textures=files["textures.rpf"];
   const source={
-    origin:worldEntry,karstYaw,pickedSpawn,ocean:exe&&common&&textures?{exe,common,textures}:undefined,
+    origin:worldEntry,karstYaw,pickedSpawn,initialDestination,ocean:exe&&common&&textures?{exe,common,textures}:undefined,
     request:(point:readonly [number,number],known:string[])=>{
       if(reloadingStreet){streetBatches=[];known=[];}
       street?.installPending([]);
@@ -1635,12 +1653,13 @@ exploreButton.onclick=event=>{
 button("walk-karst").onclick=()=>{
   if(board)openStreetWorld([-4467.083333333333,2793.625,1.8156414487554382],-Math.PI/8);
 };
-function openStreetWorld(origin:[number,number,number],yaw?:number,anchor?:StreetSpawn,title=yaw===undefined?"Explore":"Selkie Hole caves"){
+function openStreetWorld(entry:[number,number,number]|StreetDestination,yaw?:number,anchor?:StreetSpawn,
+  title=yaw===undefined?"Explore":"Selkie Hole caves"){
   if(!fpsInputReady)return;
   if(pausedLocation)releaseStreet();
   if(placingWalk)setWalkPlacement(false);
   startStreetWorker();
-  worldEntry=origin;karstYaw=yaw;pickedSpawn=anchor;
+  worldEntry=Array.isArray(entry)?entry:entry.position;karstYaw=yaw;pickedSpawn=anchor;
   get("street-title").textContent=title;
   get("street-source").textContent=yaw===undefined?"Gameplay drawables · Original ground textures where available":
     "Gameplay drawables · Original collision where available";
@@ -1650,7 +1669,7 @@ function openStreetWorld(origin:[number,number,number],yaw?:number,anchor?:Stree
   }
   streetStatus.textContent="Reading gameplay terrain";
   resetStreetRoadName();
-  mountStreet();
+  mountStreet(Array.isArray(entry)?undefined:entry);
   if(street&&!skipExploreControls&&!streetControlsSeen&&!streetControls.open)showStreetControls();
 }
 
@@ -1716,6 +1735,40 @@ button("street-copy-view").onclick=async()=>{
     streetXYZ.setCustomValidity("");showStreetDestination(true);
   }
 };
+function readStreetDestination(field:HTMLInputElement){
+  if(!atlas)return null;
+  const destination=parseStreetDestination(field.value);
+  if(!destination){
+    field.setCustomValidity("Enter X, Y, Z, optionally followed by heading, pitch, and vertical FOV (20–105°).");
+    field.reportValidity();
+    return null;
+  }
+  const {position:[x,y,z]}=destination;
+  const [left,top,width,height]=atlas.world;
+  const error=x<left*CELL||x>(left+width)*CELL||-y<top*CELL||-y>(top+height)*CELL?"Enter X and Y within the world map.":
+    Math.abs(z)>1e6?"Enter a Z coordinate between -1,000,000 and 1,000,000.":"";
+  if(error){
+    field.setCustomValidity(error);
+    field.reportValidity();
+    return null;
+  }
+  return destination;
+}
+button("map-explore-xyz").onclick=()=>{
+  mapXYZ.setCustomValidity("");
+  mapDestination.showModal();
+  mapXYZ.select();
+};
+button("map-destination-cancel").onclick=()=>mapDestination.close();
+mapXYZ.oninput=()=>mapXYZ.setCustomValidity("");
+get<HTMLFormElement>("map-destination-form").onsubmit=event=>{
+  event.preventDefault();
+  if(!fpsInputReady)return;
+  const destination=readStreetDestination(mapXYZ);
+  if(!destination)return;
+  mapDestination.close();
+  openStreetWorld(destination);
+};
 streetXYZ.oninput=()=>streetXYZ.setCustomValidity("");
 streetDestination.onkeydown=event=>{
   if(event.key!=="Escape")return;
@@ -1725,19 +1778,12 @@ streetDestination.onkeydown=event=>{
 };
 streetDestination.onsubmit=event=>{
   event.preventDefault();
-  if(!street||!atlas)return;
-  const destination=parseStreetDestination(streetXYZ.value);
-  if(!destination){streetXYZ.setCustomValidity("Enter X, Y, Z, optionally followed by heading, pitch, and vertical FOV (20–105°).");streetXYZ.reportValidity();return;}
-  const {position:[x,y,z],heading,pitch,fov}=destination;
-  const [left,top,width,height]=atlas.world;
-  const error=x<left*CELL||x>(left+width)*CELL||-y<top*CELL||-y>(top+height)*CELL?"Enter X and Y within the world map.":
-    Math.abs(z)>1e6?"Enter a Z coordinate between -1,000,000 and 1,000,000.":"";
-  if(error){streetXYZ.setCustomValidity(error);streetXYZ.reportValidity();return;}
-  const pose=street.savePose();
-  if(heading!==undefined)pose.yaw=(90-heading%360)*Math.PI/180;
-  if(pitch!==undefined)pose.pitch=Math.max(-maximumStreetPitch,Math.min(maximumStreetPitch,pitch*Math.PI/180));
-  if(fov!==undefined)pose.fov=fov;
-  if(street.relocate([x,y,z],pose.yaw,pose.pitch,pose.fov)){
+  if(!street)return;
+  const destination=readStreetDestination(streetXYZ);
+  if(!destination)return;
+  const current=street.savePose();
+  const pose={...current,...streetDestinationAngles(destination,current)};
+  if(street.relocate(destination.position,pose.yaw,pose.pitch,pose.fov)){
     showStreetDestination(false);
     get("street-canvas").focus();
     return;
@@ -1751,7 +1797,7 @@ streetDestination.onsubmit=event=>{
   navigationSerial++;reloadingStreet=false;streetBatches=[];
   street.dispose();street=null;
   showStreetDestination(false);
-  openStreetWorld([x,y,z]);
+  openStreetWorld(destination.position);
 };
 const fpsChart=new StreetFpsChart(get("street-fps"),get("street-fps-idle"));
 const showFps=input("street-show-fps"),sidebarFps=input("pref-fps");
