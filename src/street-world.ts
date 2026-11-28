@@ -2254,6 +2254,7 @@ export class StreetWorld {
     const staticLayerDirt=uniform("staticLayerDirt");
     const staticLayerDirtUV1=uniform("staticLayerDirtUV1");
     const staticLayerMarch=uniform("staticLayerMarch");
+    const staticLayerControlChannels=uniform("staticLayerControlChannels");
     const staticLayerNormals=uniform("staticLayerNormals");
     const staticDetailUniforms=[uniform("staticDetail0"),uniform("staticDetail1")];
     const roomState=this.roomTexturesSupported?uniform("roomState"):null;
@@ -2282,7 +2283,7 @@ export class StreetWorld {
     type Overlay={gpu:Resident;first:number;count:number;texture:WebGLTexture;road:boolean;groundOnly:boolean;frontOnly?:boolean;
       clip?:Float32Array;
       layers?:[WebGLTexture,WebGLTexture?];retroBlend?:number;tintMasks?:[WebGLTexture,WebGLTexture];ranges?:InstanceRange[];
-      tintMask?:WebGLTexture;surfaceBlend?:{control:WebGLTexture;dirt:WebGLTexture;reciprocal:number};
+      tintMask?:WebGLTexture;fullTint?:true;surfaceBlend?:{control:WebGLTexture;dirt:WebGLTexture;reciprocal:number};
       propMaterial?:ReturnType<typeof readyPropMaterial>};
     const overlays:Overlay[]=[],waterOverlays:Overlay[]=[];
     const water:{gpu:Resident;first:number;count:number;ranges?:InstanceRange[];ocean:boolean;clip?:Float32Array}[]=[];
@@ -2988,6 +2989,7 @@ export class StreetWorld {
               if(authored.parallax&&gpu.terrainTangents)gl.uniform4f(staticLayerMarch,...authored.parallax);
               else gl.uniform4f(staticLayerMarch,0,0,0,0);
               gl.uniform1i(staticLayerNormals,Number(readyNormals));
+              gl.uniform3f(staticLayerControlChannels,...(authored.controlChannels??[0,1,0] as const));
               gl.activeTexture(gl.TEXTURE1);
               gl.uniform2f(staticLayerState,1/Math.max(.001,authored.weightPower**2),authored.layerControl);
               draw(span.first,span.count,primary,false,Boolean(span.cutout),Boolean(span.singleSided),readyNormals?false:undefined);
@@ -3027,6 +3029,7 @@ export class StreetWorld {
                 frontOnly:span.frontOnlyDecal,layers,retroBlend:span.retroBlend,ranges,
                 tintMasks:tintMasks?.[0]&&tintMasks[1]?[tintMasks[0],tintMasks[1]]:undefined,
                 tintMask:span.decalTintMask?this.terrainTextures.get(span.decalTintMask)??undefined:undefined,
+                fullTint:span.surfacePalette===true?true:undefined,
                 surfaceBlend:blend&&blendControl&&dirt?{control:blendControl,dirt,reciprocal:blend.reciprocal}:undefined,
                 propMaterial:span.propLayers?.dirt?readyPropMaterial(gpu,span.propLayers):undefined});
             }
@@ -3141,7 +3144,7 @@ export class StreetWorld {
         gl.stencilMask(0);
         gl.stencilFunc(gl.EQUAL,groundReceiver,groundReceiver);
       }
-      for(const {gpu,first,count,texture,road,groundOnly,frontOnly,layers,retroBlend,tintMasks,tintMask,ranges,surfaceBlend,propMaterial,clip} of overlays){
+      for(const {gpu,first,count,texture,road,groundOnly,frontOnly,layers,retroBlend,tintMasks,tintMask,fullTint,ranges,surfaceBlend,propMaterial,clip} of overlays){
         useInteriorClip(clip);
         if(stencil&&groundStencil!==groundOnly){
           groundStencil=groundOnly;
@@ -3165,15 +3168,15 @@ export class StreetWorld {
           gl.activeTexture(gl.TEXTURE5);gl.bindTexture(gl.TEXTURE_2D,tintMasks[1]);
           gl.activeTexture(gl.TEXTURE1);
         }
-        gl.uniform1i(uniform("decalPaletteEnabled"),Number(Boolean(tintMasks||tintMask)));
-        if(tintMask)gl.uniform1i(uniform("surfacePaletteMode"),1);
+        gl.uniform1i(uniform("decalPaletteEnabled"),Number(Boolean(tintMasks||tintMask||fullTint)));
+        if(tintMask||fullTint)gl.uniform1i(uniform("surfacePaletteMode"),fullTint?2:1);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),surfaceBlend.reciprocal);
         gl.uniform1i(instanced,gpu.instanceMode);
         if(propMaterial)bindPropMaterial(propMaterial);
         this.drawTriangles(gpu,first,count,ranges);
         if(propMaterial)gl.uniform2f(propState,0,0);
-        if(tintMasks||tintMask)gl.uniform1i(uniform("decalPaletteEnabled"),0);
-        if(tintMask)gl.uniform1i(uniform("surfacePaletteMode"),0);
+        if(tintMasks||tintMask||fullTint)gl.uniform1i(uniform("decalPaletteEnabled"),0);
+        if(tintMask||fullTint)gl.uniform1i(uniform("surfacePaletteMode"),0);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),0);
         if(countDraws){
           if(road)roadDecals++;

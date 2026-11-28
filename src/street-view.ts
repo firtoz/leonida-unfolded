@@ -575,6 +575,7 @@ uniform vec2 staticLayerState;
 uniform vec4 staticDetail0;
 uniform vec4 staticDetail1;
 uniform vec4 staticLayerMarch;
+uniform vec3 staticLayerControlChannels;
 uniform int staticLayerDirt;
 uniform bool staticLayerDirtUV1;
 uniform bool staticLayerNormals;
@@ -1604,7 +1605,7 @@ void main(){
     }
     vec4 primary=texture(roadMask,uv0);
     vec4 secondary=texture(roadColors[0],uv1);
-    float control=texture(roadColors[3],uv1).b;
+    float control=dot(texture(roadColors[3],uv1).gba,staticLayerControlChannels);
     float raw=clamp(terrainVertexColor.a*(1.0+control),0.0,1.0);
     float reciprocal=staticLayerState.x;
     float shaped=clamp(raw/max(.01,reciprocal+(1.0-reciprocal)*raw),0.0,1.0);

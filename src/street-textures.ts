@@ -1,7 +1,7 @@
 import { inflate, view, type Archive } from "./archive";
 import { decodeBcpackBc1 } from "./bcpack";
 import { readableRoadMasks, retroDecalControls, roadDecalControl, roadWeightPrefix, elevatedRoadWeightPrefix, projectedRoadWeightPrefix, roadHeightPrefix, roadControlPrefix, roadSurfacePrefix, roadTintPrefix, roadSurfaceTintPrefix, roadHeightBlueAlpha, type RoadHeightMip } from "./street-road-material";
-import { detailAtlasSlicePrefix, roomGlassTexturePrefix, terrainTexturePrefix, waterScumTexturePrefix, type StreetBlockTexture, type StreetTextureImage } from "./street-terrain-material";
+import { detailAtlasSlicePrefix, roomGlassTexturePrefix, signGlyphPrefix, terrainTexturePrefix, waterScumTexturePrefix, type StreetBlockTexture, type StreetTextureImage } from "./street-terrain-material";
 import { closeMaterialPrefix, compressedMaterialFormats, compressedRoadColorFormats, streetBudgets } from "./street-capacity";
 import { bc1, blockOffset, loadPack, readMip, readTextureChunk, textureChunkSize, type Image, type Pack, type Texture } from "./texture";
 import { detailAtlasPackPath, imposterAtlasPackPath, poolBlockFormat, readImposterBc1Mips, readImposterBc7Mips, readPoolBc1, readPoolBc1BlockChain, readPoolBc1Chain, readPoolBc4Top, readPoolBc16, readPoolBc7ArraySlice, readPoolBc7Chain, wideBc1Offset } from "./texture-pool-blocks";
@@ -397,6 +397,32 @@ async function readRgbaTiles64K(pack:Pack,row:number,side:number):Promise<Image|
   return {width:side,height:side,rgba};
 }
 
+async function readSignGlyph(pack:Pack,texture:Texture):Promise<StreetTextureImage|null>{
+  const {width,height,mode,tileMode,start,end,surface}=texture;
+  if(surface?.format!==28||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1||end!==start+1)return null;
+  const layout=mode===0xe0&&tileMode===1&&width===128&&height===64
+    ?[[0,1,5,7,9,10,11],[2,3,4,6,8,12]]
+    :mode===0xe1&&tileMode===0&&width===256&&height===256
+      ?[[0,1,4,7,9,11,13,14],[2,3,5,6,8,10,12,15]]:undefined;
+  if(!layout)return null;
+  const size=width*height*4;
+  if(textureChunkSize(pack,start)!==size)return null;
+  const raw=await readTextureChunk(pack,start,size);
+  if(!raw)return null;
+  const offsets=(length:number,bits:number[])=>Uint32Array.from({length},(_,coordinate)=>
+    bits.reduce((offset,bit,index)=>offset|((coordinate>>index)&1)<<bit,0));
+  const columns=offsets(width,layout[0]),rows=offsets(height,layout[1]);
+  const rgba=new Uint8ClampedArray(size).fill(255);
+  // The RGB channels carry the same signed distance. Convert it to coverage
+  // before mip generation so small signs keep the average glyph opacity.
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){
+    const distance=raw[(rows[y]|columns[x])*4];
+    const edge=Math.max(0,Math.min(1,(distance-120)/16));
+    rgba[(y*width+x)*4+3]=255*edge*edge*(3-2*edge);
+  }
+  return {width,height,rgba,alphaCutout:true};
+}
+
 export async function readTerrainLayerInput(
   pack:Pack,texture:Texture,role:"weights"|"height"|"normal"|"indices",
 ):Promise<Image|null>{
@@ -782,7 +808,7 @@ export class StreetTextures {
       if(supportedColor(texture.mode)||key===roadDecalControl)return {pack,texture};
       if(!fallback&&(readableRoadMasks.has(key)||
         texture.surface?.dimension===1&&texture.surface.depth===1&&poolBlockFormat(texture)!==undefined||
-        [0x239,0x311,0x313,0xe1,0xe3].includes(texture.mode)))fallback={pack,texture};
+        [0x239,0x311,0x313,0xe0,0xe1,0xe3].includes(texture.mode)))fallback={pack,texture};
     }
     return fallback;
   }
@@ -928,6 +954,10 @@ export class StreetTextures {
   }
 
   async image(id:string,ground:boolean,terrainMips=true):Promise<StreetTextureImage|null>{
+    if(id.startsWith(signGlyphPrefix)){
+      const source=await this.findSourceWithAlias(id.slice(signGlyphPrefix.length));
+      return source?readSignGlyph(source.pack,source.texture):null;
+    }
     if(id.startsWith(detailAtlasSlicePrefix)){
       const index=id.slice(detailAtlasSlicePrefix.length);
       const archive=this.archives.get(detailAtlasPackPath);

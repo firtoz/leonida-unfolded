@@ -32,6 +32,7 @@ export type TerrainLayers={
 
 export const dynamicTerrainPrefix="dynamic-terrain:";
 export const terrainTexturePrefix="terrain-layer:";
+export const signGlyphPrefix="sign-glyph:";
 export const roomGlassTexturePrefix=terrainTexturePrefix+"room-glass:";
 // The first lane reuses the water backdrop sampler during the opaque pass.
 export const terrainDetailUnits=[18,29,30,31] as const;
