@@ -1,3 +1,4 @@
+import { streetTextureCacheVersions } from "./street-cache-versions";
 import {view} from "./archive";
 import type {Image} from "./texture";
 import {dynamicTerrainPrefix,terrainTexturePrefix,type StreetTextureImage} from "./street-terrain-material";
@@ -64,7 +65,7 @@ export function sectorTerrainPage(drawable:string,ordinal:number,part:number,
   if(!bounds.every(Number.isFinite)||!(end>left&&north>bottom)||
     left<x-.0001||bottom<y-.0001||end>right+.0001||north>top+.0001)return;
   return {sectorOnly:true,bounds,control:{
-    id:`${dynamicTerrainPrefix}${drawable}:page-v3:${ordinal}:${part.toString(16)}`,
+    id:`${dynamicTerrainPrefix}${drawable}:page-v${streetTextureCacheVersions.dynamicTerrainPage}:${ordinal}:${part.toString(16)}`,
     sector:{origin:[x,y]},
   }};
 }

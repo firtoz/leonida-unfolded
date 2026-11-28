@@ -1,3 +1,5 @@
+import { sidebarStorageKey as sidebarKey, editsStorageKey as editsKey, layersStorageKey as layerKey,
+  devSnapshotStorageKey as devSnapshotKey } from "./app-storage-constants";
 import { RoadNames } from "./road-names";
 import { StreetFpsChart } from "./street-fps-chart";
 import { rememberDevFiles, reopenDevFiles } from "./dev-file-session";
@@ -117,7 +119,6 @@ const reducedMotion=matchMedia("(prefers-reduced-motion: reduce)");
 const flightSpawnClearance=12;
 const workspace=get("workspace"),landing=get("landing"),sidebar=get("sidebar"),gallery=get("gallery");
 const compactMap=matchMedia("(max-width: 700px)");
-const sidebarKey="leonida-unfolded.sidebar-v1";
 const sidebarSections=["layers","places","customize"] as const;
 type SidebarSection=(typeof sidebarSections)[number];
 const optionalSidebarItems=["places","coordinates","inspection","files"] as const;
@@ -189,7 +190,6 @@ for(const item of optionalSidebarItems)input(`pref-${item}`).onchange=event=>{
 };
 const loading=new LoadingOverlay(get("load-overlay"),get("load-jobs"));
 const pendingTextures=new Set<string>();
-const editsKey="terrain-atlas-edits-v1",layerKey="terrain-atlas-layers-v1";
 let files:Record<string,File>=Object.create(null);
 let fpsInputReady=false;
 let worker:Worker|null=null,board:Board|null=null,atlas:Atlas|null=null;
@@ -1904,7 +1904,6 @@ type ViewerSnapshot={
   raised:boolean;tilt:string;relief:string;water:boolean;
   street:{origin:[number,number,number]|null;karstYaw:number|undefined;pickedSpawn?:StreetSpawn;pose:StreetPose;navigation:boolean;paused?:boolean}|null;
 };
-const devSnapshotKey="terrain-atlas-dev-view-v1";
 let pendingSnapshot:ViewerSnapshot|null=null;
 
 function saveViewer(){

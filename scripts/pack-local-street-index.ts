@@ -1,3 +1,4 @@
+import { legacyIndexScanVersions } from "../src/street-cache-versions";
 import { open, rename, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { Archive } from "../src/archive";
@@ -9,7 +10,7 @@ if(!source||!checkpoint||!output)throw new Error("Usage: bun scripts/pack-local-
 const directory=resolve(checkpoint),file=Bun.file(resolve(source)),destination=resolve(output);
 const identity=await Bun.file(resolve(directory,"scan.json")).json();
 const headerHash=Buffer.from(await crypto.subtle.digest("SHA-256",await file.slice(0,4096).arrayBuffer())).toString("hex");
-if(![5,6,indexScanVersion].includes(identity.format)||identity.size!==file.size||identity.hash!==headerHash||identity.total!==Math.ceil(file.size/indexSegmentSize))
+if(![...legacyIndexScanVersions,indexScanVersion].includes(identity.format)||identity.size!==file.size||identity.hash!==headerHash||identity.total!==Math.ceil(file.size/indexSegmentSize))
   throw new Error("Scan checkpoints belong to a different archive or scan format.");
 
 async function* checkpoints(){

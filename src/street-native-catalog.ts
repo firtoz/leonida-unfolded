@@ -1,4 +1,5 @@
 import { Archive, view } from "./archive";
+import { joaat } from "./places";
 import { readDrawableAliases } from "./street-archetypes";
 import { batchPlant, decodeIndexedPlacements, streetAsset, type IndexedPlacement } from "./street-index-placement";
 import { StreetRpf9, type StreetArchiveMember } from "./street-rpf9";
@@ -31,6 +32,8 @@ const nativeGroundCover=/^veg_(?:hedge|debris)_.*(?<!_uw)(?<!_water)(?<!_imposte
 // Floating leaf batches have ordinary cutout geometry at their authored water-surface pivots.
 const floatingLeafDebris=/^veg_debris_(?:[a-z0-9]+_)*leaves_\d+_water$/i;
 const plantDrawable=(model:VegetationModel)=>batchPlant.test(model.name)||nativeGroundCover.test(model.name)||floatingLeafDebris.test(model.name);
+const affineCanopyModel=/^prop_.*(?:parasol|umbrella|canopy|awning).*_batchlod$/i;
+const affineCanopyRadius=96;
 
 export type NativeCatalogOpen = { catalog: "open"; file: Blob; executable: Blob; common?: Blob };
 export type NativeWorldCollisionQuery={catalog:"worldCollision"};
@@ -259,7 +262,7 @@ export class StreetNativeCatalog {
     return {wanted,meshes};
   }
 
-  async query(point: readonly [number, number], radius: number, active: () => boolean) {
+  async query(point: readonly [number, number], radius: number, active: () => boolean,includeAffineCanopies=true) {
     const began=performance.now();
     await this.prepare();
     const registrationMs=performance.now()-began;
@@ -271,7 +274,64 @@ export class StreetNativeCatalog {
       const [x, y] = row.placement.position;
       return Math.hypot(x - point[0], y - point[1]) <= radius;
     },active);
-    return {...result,registrationMs};
+    if(!includeAffineCanopies)return {...result,registrationMs};
+    const before=this.archive.bytesRead;
+    const props=await this.affineCanopies(scenes,point,Math.min(radius,affineCanopyRadius),result.assets,active);
+    if(props.length)result.assets.push(...props);
+    return {...result,bytes:result.bytes+this.archive.bytesRead-before,registrationMs};
+  }
+
+  private async affineCanopies(scenes:StreetArchiveMember[],point:readonly [number,number],radius:number,
+    direct:StreetAsset[],active:()=>boolean){
+    const assets:StreetAsset[]=[];
+    for(const member of scenes){
+      if(!active())return [];
+      if(member.mapClass!==5||((member.mapFlags??0)&0x402)!==0x402)continue;
+      const box=member.entityBounds??member.streamingBounds!;
+      if(vegetationDistance(...point,box[0],box[1],box[3],box[4])>radius)continue;
+      const map=await this.vegetationMap(member);
+      if(!map?.graphics?.length)continue;
+      const nearby=map.batches.filter(({batch,layout,key})=>!batch[4]&&layout?.stride===64&&key!==0n&&
+        vegetationDistance(...point,batch[6],batch[7],batch[8],batch[9])<=radius);
+      if(!nearby.length)continue;
+      const packs=this.interiorPacksFor(member);
+      const indexed=await this.interiorModels(new Map(nearby.map(({batch,key})=>[key,batch[0]])),packs,active);
+      const canopies=nearby.flatMap(row=>{
+        const model=indexed.get(row.key);
+        return model&&affineCanopyModel.test(model.name)?[{row,model}]:[];
+      });
+      if(!canopies.length)continue;
+      const baseNames=canopies.map(({model})=>model.name.replace(/_batchlod$/i,""));
+      const baseKeys=baseNames.map(name=>BigInt("0x"+drawableNameKey(name)));
+      const full=await this.interiorModels(new Map(baseKeys.map((key,i)=>[key,joaat(baseNames[i])])),packs,active);
+      const source={system:map.pages[0],systemPages:map.pages,graphics:map.graphics};
+      const streams=[...map.pages,...map.graphics].map(([offset,stored,decoded])=>[offset,stored,decoded]);
+      for(const [i,{row:{batch,key,center,layout},model}] of canopies.entries()){
+        if(!layout)continue;
+        const base=full.get(baseKeys[i]);
+        const drawable=base?.name===baseNames[i]?base:model;
+        const asset=streetAsset(drawable,{at:batch[1],hash:drawable.hash,range:streams[0],
+          placement:{position:[...center],rotation:[0,0,0,1],scale:[1,1]}});
+        if(!asset?.localBounds)continue;
+        const span=Math.hypot(...asset.localBounds.map(Math.abs));
+        asset.coverage=[layout.low[0]-span,layout.low[1]-span,layout.low[2]-span,
+          layout.high[0]+span,layout.high[1]+span,layout.high[2]+span];
+        asset.batchStreams=streams;
+        const ordinary=direct.flatMap(candidate=>{
+          const position=candidate.placement?.position;
+          return candidate.name===drawable.name&&position&&position.every((value,axis)=>
+            value>=layout.low[axis]-.075&&value<=layout.high[axis]+.075)?[{position,
+                id:`${candidate.instance[0].toString(16)}-${candidate.at.toString(16)}`}]:[];
+        });
+        const skipped=ordinary.map(({id})=>id).sort().join(",");
+        asset.id=`native-affine:${member.offset.toString(16)}-${batch[1].toString(16)}${skipped?":without:"+skipped:""}`;
+        const indexedBatch:VegetationBatch=[...batch];
+        indexedBatch[12]=key;
+        asset.affineProps={batch:indexedBatch,layout,source,duplicates:ordinary.map(({position})=>position)};
+        assets.push(asset);
+      }
+    }
+    return active()?assets:[];
   }
 
   async queryInteriors(eye:readonly [number,number,number],radius:number,active:()=>boolean){

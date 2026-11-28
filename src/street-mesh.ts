@@ -1,3 +1,25 @@
+import { streetMeshCacheVersions } from "./street-cache-versions";
+import {
+  projectedRoadEffect, standardDecalEffect, layeredGroundEffect, emissiveLightmapEffect,
+  emissivePaletteEffect, windDecalEffect, standardPaletteEffect, groundSurfaceDecalEffect,
+  diffuseBindingHash, materialBBindingHash, tintPaletteBindingHash, layerOneDiffuseBindingHash,
+  layerTwoDiffuseBindingHash, layerOneMaterialBBindingHash, layerTwoMaterialBBindingHash, layerControlBindingHash,
+  opaqueMaterialBTexture, decalBlendEffect, propDecalBlendEffect, layeredPropDecalEffect,
+  layeredObjectDecalEffect, retroDecalEffect, immersedDecalEffect, layeredSurfaceDecals,
+  standardAlphaEffect, exteriorGlassEffects, luminousSurfaceEffects, dirtEffect,
+  pxmGroundDirtEffect, standardGroundEffect, twoSidedDirtEffect, clothDirtEffect,
+  batchDirtEffect, windClothEffect, dualLayerPropEffect, retroreflectionDirtEffect,
+  layeredPavementEffect, signBackingEffect, signGlyphEffect, layeredSignGlyphEffect,
+  layeredRoadSignEffect, propSignGlyphEffect, runtimeSignEffect, tintedClothEffect,
+  reflectedDiffuseEffects, groundBlendDecalEffect, surfaceOpacityEffects, objectDecalEffects,
+  objectDirtEffects, layeredGroundEffects, mixedProjectedGroundEffect, uv3LandscapeEffect,
+  spxUV3LandscapeEffect, fixedUVLandscapeEffect, singleSidedLandscapeEffects, uberGroundEffects,
+  reflectedGroundDecals, roadDiffuseDecals,
+  vertexBlendedGroundEffect, sectorBlendedGroundEffect, uberGroundEffect, dpmUberGroundEffect,
+  layerOneMaterialABindingHash, layerTwoMaterialABindingHash, dirtBindingHash, detailArrayBindingHash,
+  normalBindingHash, signGlyphBindingHash, waterCausticsTexture, layerProjectionBindingSlots,
+  groundBlendDecalLayout,
+} from "./street-material-constants";
 import type { StreetAssetCache } from "./street-asset-cache";
 import { inflate, readResources, text, view, type Archive, type Range } from "./archive";
 import { emptyBounds, type Bounds } from "./native-spatial";
@@ -7,9 +29,11 @@ import { readableRoadMasks, retroDecalControls, roadDecalControl, roadWeightPref
 import { detailAtlasSlicePrefix, materialMaskChainPrefix, signGlyphPrefix, standardPaletteMaterial, terrainTexturePrefix, waterScumTexturePrefix, type TerrainLayers } from "./street-terrain-material";
 import {dynamicTerrainControl,sectorTerrainPage,type ComposedTerrainSource,type DynamicTerrainSource} from "./street-dynamic-terrain";
 import { placementMatrix, placementNormalMatrix, readPlacement, type Placement } from "./street-placement";
+import { streetSignFontId, streetSignQuads, type StreetSignFont } from "./street-sign-font";
 import { readStreetRoller, rollerDrawable, type StreetRoller } from "./street-roller";
 import type { InteriorMembership } from "./street-interior";
-import { nativePackedTintMaterial, nativePaletteMaterial, type VegetationModel } from "./street-vegetation";
+import { nativePackedTintMaterial, nativePaletteMaterial, readVegetationBatch, readVegetationGraphics,
+  type VegetationBatch, type VegetationInstanceLayout, type VegetationLocator, type VegetationModel } from "./street-vegetation";
 import { readIndexedBounds } from "./street-index-scan";
 import { indexedTerrainTile } from "./street-index-placement";
 import { streetGraphicsPages } from "./street-graphics";
@@ -31,7 +55,10 @@ export type PropMaterialLayers={
 };
 export type StaticMaterialLayers={
   textures:PropMaterialLayers["textures"]; weightPower:number; layerControl:number;
-  controlChannels?:readonly [number,number,number];
+  controlChannels?:readonly [number,number,number,number];
+  paletteStrength?:readonly [number,number];
+  secondaryScale?:readonly [number,number];
+  controlUV0?:true;
   detail?:readonly [StaticLayerDetail|undefined,StaticLayerDetail|undefined];
   normals?:readonly [string,string];
   parallax?:NonNullable<PropMaterialLayers["parallax"]>["march"];
@@ -45,11 +72,13 @@ export type StreetRoomMaterial={
     absorption:[number,number,number,number]};
 };
 type SurfaceDecalBlend = {control:string; dirt:string; reciprocal:number};
-type MaterialSpan = {first:number;count:number;texture:string|null;vertexPalette?:true;bump?:string;bumpStrength?:number;ground?:boolean;water?:boolean;cutout?:boolean;overlay?:boolean;frontOnlyDecal?:boolean;singleSided?:boolean;groundBlend?:boolean;vertexOpacity?:boolean;noDecalColor?:true;fallback?:string;textureBounds?:Bounds;road?:RoadLayers;terrain?:TerrainLayers;decalLayers?:DecalLayers;retroBlend?:number;decalTintMasks?:[string,string];decalTintMask?:string;surfacePalette?:string|true;surfaceDecalBlend?:SurfaceDecalBlend;propLayers?:PropMaterialLayers;staticLayers?:StaticMaterialLayers;room?:StreetRoomMaterial};
+type SurfaceInstancePalette=Pick<PropMaterialLayers,"palette"|"paletteKey">&{zeroDirtOnly?:true};
+type MaterialSpan = {first:number;count:number;texture:string|null;vertexPalette?:true;bump?:string;bumpStrength?:number;ground?:boolean;water?:boolean;cutout?:boolean;overlay?:boolean;frontOnlyDecal?:boolean;singleSided?:boolean;groundBlend?:boolean;vertexOpacity?:boolean;noDecalColor?:true;fallback?:string;textureBounds?:Bounds;road?:RoadLayers;terrain?:TerrainLayers;decalLayers?:DecalLayers;retroBlend?:number;retroPrimaryUV0?:true;decalTintMasks?:[string,string];decalTintMask?:string;surfacePalette?:string|true;surfacePaletteMaskScale?:number;surfacePaletteBackBlend?:number;surfacePaletteAlternate?:[number,number,number,number];instancePalette?:SurfaceInstancePalette;pairedSignBacking?:true;surfaceDecalBlend?:SurfaceDecalBlend;propLayers?:PropMaterialLayers;staticLayers?:StaticMaterialLayers;room?:StreetRoomMaterial};
 type Appearance = {uv:Float32Array<ArrayBuffer>;spans:MaterialSpan[]};
 type AppearanceBuilder = {uv:number[];spans:MaterialSpan[];normals?:{first:number;values:Int16Array}[];foliage?:boolean;coarseGeometry?:boolean;
+  signFont?:StreetSignFont;
   waterScum?:string;mixedWater?:boolean;
-  packedVegetationTint?:true;ordinaryPropLayers?:true;
+  packedVegetationTint?:true;ordinaryPropLayers?:true;mixedTintSelectors?:true;placementLayer?:PlacementLayer;
   dynamic?:DynamicTerrainSource[];
   terrainColors?:{first:number;values:Uint8Array}[];
   terrainTintUV?:{first:number;values:Float32Array}[];
@@ -90,6 +119,7 @@ export type StreetAsset={
   placementLod?:import("./street-placement-probe").PlacementLodLink;
   placement?:Placement;
   batchStreams?:number[][]; batchSkip?:number[];
+  affineProps?:{batch:VegetationBatch;layout:VegetationInstanceLayout;source:VegetationLocator;duplicates?:Vec3[]};
 };
 const structureRadius=450,foliageRadius=180,instanceCellSize=64;
 const propDetailRadius=160;
@@ -145,12 +175,17 @@ function nearbyStructures(x:number,y:number,additional:StreetAsset[],withMateria
   return nearby;
 }
 
+function signVariant(asset:StreetAsset){
+  const label=asset.placement?.signLabel;
+  return label?.font===streetSignFontId?`:sign:${JSON.stringify(label)}`:"";
+}
+
 function structureBatches(structures:ReturnType<typeof nearbyStructures>,x:number,y:number,cached:Set<string>){
   const batches=new Map<string,StreetAsset[]>();
   for(const {asset} of structures){
     const id=asset.kind==="foliage"||asset.kind==="prop"&&!asset.batchStreams
       ?`${asset.kind}:${asset.name}:${asset.streams[0][0].toString(16)}:${instanceOrigin(asset).slice(0,2).join(",")}`+
-        (asset.kind==="prop"?`:${asset.geometryDescriptor??"default"}`:"")
+        (asset.kind==="prop"?`:${asset.geometryDescriptor??"default"}${signVariant(asset)}`:"")
       :asset.id??asset.name;
     const batch=batches.get(id);
     if(batch)batch.push(asset);
@@ -187,7 +222,8 @@ export function structureBounds(asset:StreetAsset):Bounds|undefined{
 }
 
 export function cachedMeshBytes(mesh:StreetChunk){
-  const palettes=new Set(mesh.appearance?.spans.flatMap(span=>span.propLayers?[span.propLayers.palette]:[]));
+  const palettes=new Set(mesh.appearance?.spans.flatMap(span=>[span.propLayers?.palette,span.instancePalette?.palette]
+    .filter(palette=>palette!==undefined)));
   return mesh.vertices.byteLength+mesh.indices.byteLength+(mesh.appearance?.uv.byteLength??0)+
     (mesh.normals?.byteLength??0)+(mesh.terrainColors?.byteLength??0)+(mesh.terrainTintUV?.byteLength??0)+
     (mesh.terrainTangents?.byteLength??0)+(mesh.terrainSecondaryTangents?.byteLength??0)+
@@ -207,7 +243,8 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
   assetCache?:StreetAssetCache,nearReady?:()=>void,
   readForeground?:(point:readonly [number,number],radius:number)=>Promise<StreetAsset[]>,
   readTerrain?:(point:readonly [number,number],reach:number,detailReach:number,cells?:readonly DetailCell[])=>Promise<StreetAsset[]>,
-  onStructurePlan?:(planned:ReadonlySet<string>,conditional:ReadonlySet<string>)=>void){
+  onStructurePlan?:(planned:ReadonlySet<string>,conditional:ReadonlySet<string>)=>void,
+  readSignFont?:()=>Promise<StreetSignFont|undefined>){
   const cached=new Set(known),wanted:string[]=[],meshes:StreetChunk[]=[];
   const tables=new Map<number,Promise<DataView>>();
   const streamKey=(streams:number[][])=>streams.map(range=>range.join(",")).join(":");
@@ -293,7 +330,7 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
   }
   async function loadTerrainCell(col:number,row:number,source:RegionCell,detail:boolean){
     const id=`${col},${row}`;
-    const key=`terrain-v${detail?46:7}:${Number(withMaterials)}:${id}:${Number(detail)}:native`;
+    const key=`terrain-v${detail?streetMeshCacheVersions.detailedTerrain:streetMeshCacheVersions.overviewTerrain}:${Number(withMaterials)}:${id}:${Number(detail)}:native`;
     const localCache=Math.abs(col-cx)<=1&&Math.abs(row-cy)<=1?assetCache:undefined;
     const saved=await localCache?.get("mesh",key);
     if(saved)return saved;
@@ -563,6 +600,9 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
     if(finer.length)preferred.set(variant.job[0],finer.map(row=>row.job));
   }
   if(onStructurePlan)onStructurePlan(new Set([...wanted,...structures.map(([id])=>id)]),new Set(preferred.keys()));
+  const signFont=withMaterials&&readSignFont&&structures.some(([,batch])=>batch[0].placement?.signLabel?.font===streetSignFontId)
+    ?await readSignFont():undefined;
+  if(!active())return {wanted,meshes,skipped};
   const resolved=new Set(cached);
   const hasPreferred=(id:string)=>preferred.get(id)?.some(([better])=>resolved.has(better));
   const remainingDone=startWork("remaining",distant.filter(cell=>pendingBase(cell,sources)).length+
@@ -589,13 +629,16 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
   function loadResource(asset:StreetAsset,entry:{blocks?:ReturnType<typeof drawableBlocks>}){
     return entry.blocks??=asset.indexed?indexedDrawableBlocks(archive,asset):drawableBlocks(archive,asset.streams,asset.system);
   }
-  for(const [id,[asset]] of structures){
+  for(const [id,batch] of structures){
+    const asset=batch[0];
     if(cached.has(id))continue;
     const key=resourceKey(asset),entry=structuresByResource.get(key);
     if(entry)entry.remaining++;
     else structuresByResource.set(key,{remaining:1});
     if(!asset.batchStreams&&(asset.kind==="prop"||asset.kind==="foliage")){
-      const shapeKey=`${key}:${asset.kind}:${asset.name}:${asset.drawable??""}:${asset.geometryDescriptor??""}:${asset.parts?.join(",")??""}`;
+      const selector=sharedShapeTint(batch);
+      const layer=sharedPlacementLayer(batch);
+      const shapeKey=`${key}:${asset.kind}:${asset.name}:${asset.drawable??""}:${asset.geometryDescriptor??""}:${asset.parts?.join(",")??""}:${selector===null?"mixed":selector??""}${signVariant(asset)}${layer?":"+layer+"-layer":""}`;
       batchShapes.set(id,shapeKey);
       shapeUses.set(shapeKey,(shapeUses.get(shapeKey)??0)+1);
     }
@@ -664,12 +707,14 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
       const deckSchema=roadBridgeDrawable(asset.name)?":bridge-material":"";
       const groupSchema=indexedRootShape(asset)&&!asset.parts?":root-group":"";
       const tintSchema=asset.kind==="prop"&&!asset.batchStreams&&
-        (withMaterials||batch.some(row=>row.placement?.tintSelector!==undefined))?":instance-tint-v5":"";
-      const boundsSchema=asset.kind==="prop"&&!asset.batchStreams?":instance-bounds-v1":"";
+        (withMaterials||batch.some(row=>row.placement?.tintSelector!==undefined))?`:instance-tint-v${streetMeshCacheVersions.instanceTint}`:"";
+      const boundsSchema=asset.kind==="prop"&&!asset.batchStreams?`:instance-bounds-v${streetMeshCacheVersions.instanceBounds}`:"";
       const kind=asset.kind??"structure";
-      const version=withMaterials&&kind==="structure"?41:withMaterials&&kind==="prop"?36:32;
-      const rollerSchema=rollerDrawable.test(asset.name)?":roller-v1":"";
-      const key=`object-v${version}:${Number(withMaterials)}:${id}:${resource}:${asset.geometryDescriptor??""}:${kind}:${members}${asset.drawable===undefined?"":`:${asset.drawable}`}${aggregate?":aggregate":""}${deckSchema}${groupSchema}${tintSchema}${boundsSchema}${rollerSchema}`;
+      const version=withMaterials&&(kind==="structure"||kind==="prop")?streetMeshCacheVersions.materialObject:streetMeshCacheVersions.object;
+      const rollerSchema=rollerDrawable.test(asset.name)?`:roller-v${streetMeshCacheVersions.roller}`:"";
+      const fontSchema=signFont&&signVariant(asset)?`:sign-font-v${streetMeshCacheVersions.signFont}`:"";
+      const affineSchema=asset.affineProps?`:affine-canopy-v${streetMeshCacheVersions.affineCanopy}`:"";
+      const key=`object-v${version}:${Number(withMaterials)}:${id}:${resource}:${asset.geometryDescriptor??""}:${kind}:${members}${asset.drawable===undefined?"":`:${asset.drawable}`}${aggregate?":aggregate":""}${deckSchema}${groupSchema}${tintSchema}${boundsSchema}${rollerSchema}${fontSchema}${affineSchema}`;
       lookup={key,result:assetCache.get("mesh",key)};
       meshLookups.set(id,lookup);
     }
@@ -791,13 +836,13 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
         if(asset.batchStreams){
           const key=streamKey(asset.batchStreams);
           let placement=placementBatches.get(key);
-          if(!placement){
+          if(!placement&&!asset.affineProps){
             placement=drawableBlocks(archive,asset.batchStreams);
             placementBatches.set(key,placement);
           }
-          decoded=await loadPropBatch(asset,loadResource(asset,entry),placement,withMaterials);
+          decoded=await loadPropBatch(archive,asset,loadResource(asset,entry),placement,withMaterials);
         }else if(shapeKey){
-          let mesh=takeShape(shapeKey)??loadPlacedShape(asset,await loadResource(asset,entry),withMaterials);
+          let mesh=takeShape(shapeKey)??loadPlacedShape(asset,await loadResource(asset,entry),withMaterials,sharedShapeTint(batch),signFont,sharedPlacementLayer(batch));
           mesh.geometryKey=`placed:${Number(withMaterials)}:${shapeKey}`;
           if(later&&keepShape(shapeKey,mesh))mesh=structuredClone(mesh);
           decoded=await loadPlacedBatch(id,batch,range=>instanceTable(range,asset.indexed),mesh);
@@ -853,7 +898,7 @@ export async function loadStreetRegion(archive:Archive,[x,y]:readonly [number,nu
 
 export async function loadPropAsset(archive:Archive,asset:StreetAsset){
   if(!asset.batchStreams)throw new Error("Missing prop placement streams.");
-  return loadPropBatch(asset,drawableBlocks(archive,asset.streams,asset.system),drawableBlocks(archive,asset.batchStreams),true);
+  return loadStreetAsset(archive,asset,true);
 }
 
 export async function loadVegetationGeometry(archive:Archive,model:VegetationModel,indexed=false,coarseGeometry=false){
@@ -867,9 +912,8 @@ export async function loadVegetationGeometry(archive:Archive,model:VegetationMod
   return chunk(model.name,"foliage",identity.position,vertices,indices,appearance);
 }
 
-async function loadPropBatch(asset:StreetAsset,resource:ReturnType<typeof drawableBlocks>,
-  placement:ReturnType<typeof drawableBlocks>,withMaterials:boolean):Promise<StreetChunk>{
-  const [model,{metadata,gpu}]=await Promise.all([resource,placement]);
+async function legacyPropPlacements(asset:StreetAsset,placement:ReturnType<typeof drawableBlocks>){
+  const {metadata,gpu}=await placement;
   const table=view(metadata),at=asset.at;
   if(table.getUint32(0x10,true)!==0x50524430||table.getUint32(at+0x44,true)!==asset.hash)
     throw new Error("Invalid prop batch archetype.");
@@ -881,11 +925,35 @@ async function loadPropBatch(asset:StreetAsset,resource:ReturnType<typeof drawab
   if(table.getUint32(entry,true)!==0xea6b3a96||skip+count*64>size)
     throw new Error("Invalid prop batch matrix table.");
   const start=pointer(table,entry+8,graphics,size,gpu.byteLength)+skip;
+  const low=[0,4,8].map(axis=>table.getFloat32(at+0xa0+axis,true));
+  const high=[0,4,8].map(axis=>table.getFloat32(at+0xb0+axis,true));
+  return {data:new DataView(gpu.buffer,gpu.byteOffset+start,count*64),count,low,high};
+}
+
+async function nativePropPlacements(archive:Archive,{batch,layout,source}:NonNullable<StreetAsset["affineProps"]>){
+  const storage=readVegetationGraphics(archive,source,new Map([[batch[1],layout]]));
+  const {data,low,high,stride}=await readVegetationBatch(batch,storage,batch[0]);
+  if(stride!==64)throw new Error("Invalid affine prop stride.");
+  return {data,count:batch[3],low,high};
+}
+
+async function loadPropBatch(archive:Archive,asset:StreetAsset,resource:ReturnType<typeof drawableBlocks>,
+  placement:ReturnType<typeof drawableBlocks>|undefined,withMaterials:boolean):Promise<StreetChunk>{
+  const matrices=asset.affineProps?nativePropPlacements(archive,asset.affineProps):placement&&legacyPropPlacements(asset,placement);
+  if(!matrices)throw new Error("Missing prop placement streams.");
+  const [model,{data:gpu,count,low,high}]=await Promise.all([resource,matrices]);
   const origin=instanceOrigin(asset);
   const vertices:number[]=[],indices:number[]=[],appearance:AppearanceBuilder={uv:[],spans:[],normals:[]};
-  const identity:Placement={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1]};
-  appendDrawable(model,asset.name,0,0,identity,identity.position,66,vertices,indices,
-    true,withMaterials?appearance:undefined,asset.parts,asset.geometryDescriptor);
+  let tintSelector=asset.affineProps?gpu.getUint8(0x37):undefined;
+  if(tintSelector!==undefined){
+    if(tintSelector>=64)tintSelector=undefined;
+    for(let i=1;i<count&&tintSelector!==undefined;i++)
+      if(gpu.getUint8(i*64+0x37)!==tintSelector)tintSelector=undefined;
+  }
+  const identity:Placement={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1],tintSelector};
+  appendDrawable(model,asset,0,0,identity,identity.position,66,vertices,indices,
+    true,withMaterials?appearance:undefined,asset.parts,
+    asset.geometryDescriptor??(asset.indexed?indexedDescriptor(model.metadata,asset):undefined));
   if(!indices.length)throw new Error("Empty prop drawable.");
   const mesh=chunk(asset.id??asset.name,"prop",origin,vertices,indices,appearance);
   const split=count>32;
@@ -893,15 +961,15 @@ async function loadPropBatch(asset:StreetAsset,resource:ReturnType<typeof drawab
   const excluded=new Set(asset.batchSkip);
   for(let i=0;i<count;i++){
     if(excluded.has(i))continue;
-    const offset=start+64*i;
+    const offset=64*i;
     const matrix=Array.from({length:12},(_,j)=>gpu.getFloat32(offset+j*4,true));
     if(!matrix.every(Number.isFinite))continue;
     const [a,b,c,,d,e,f,,g,h,k]=matrix;
     const volume=Math.abs(a*(e*k-f*h)-b*(d*k-f*g)+c*(d*h-e*g));
     if(volume<=.0001||volume>=1000)continue;
     const xyz=[matrix[3],matrix[7],matrix[11]];
-    if(!xyz.every((v,axis)=>v>=table.getFloat32(at+0xa0+4*axis,true)-.02&&
-      v<=table.getFloat32(at+0xb0+4*axis,true)+.02))continue;
+    if(!xyz.every((v,axis)=>v>=low[axis]-.02&&v<=high[axis]+.02)||
+      asset.affineProps?.duplicates?.some(at=>Math.hypot(at[0]-xyz[0],at[1]-xyz[1],at[2]-xyz[2])<.075))continue;
     const local=xyz.map((v,axis)=>v-origin[axis]);
     const tile=split?`${Math.floor(xyz[0]/32)},${Math.floor(xyz[1]/32)}`:"";
     let group=groups.get(tile);
@@ -911,12 +979,14 @@ async function loadPropBatch(asset:StreetAsset,resource:ReturnType<typeof drawab
     }
     const {poses,ids,bounds}=group;
     const tint=Array.from({length:4},(_,j)=>gpu.getUint8(offset+0x34+j)/255);
-    poses.push(...local,...matrix.slice(0,3),...matrix.slice(4,7),...matrix.slice(8,11),...tint);
+    // Native near prop batches store their basis vectors as columns.
+    const linear=asset.affineProps?[a,d,g,b,e,h,c,f,k]:[a,b,c,d,e,f,g,h,k];
+    poses.push(...local,...linear,...tint);
     ids.push(`${mesh.id}:${i}`);
     for(let axis=0;axis<3;axis++){
       let lo=local[axis],hi=lo;
       for(let j=0;j<3;j++){
-        const v=matrix[axis*4+j],a=v*mesh.bounds[j],b=v*mesh.bounds[j+3];
+        const v=linear[axis*3+j],a=v*mesh.bounds[j],b=v*mesh.bounds[j+3];
         lo+=Math.min(a,b);hi+=Math.max(a,b);
       }
       bounds[axis]=Math.min(bounds[axis],lo);
@@ -935,13 +1005,32 @@ async function loadPropBatch(asset:StreetAsset,resource:ReturnType<typeof drawab
       bounds[axis+3]=Math.max(bounds[axis+3],group.bounds[axis+3]);
     }
   }
-  return {...mesh,bounds,instances:{poses,ids,affine:true,tiles:tiles.length>1?tiles:undefined}};
+  return {...mesh,bounds,modelName:asset.name,instances:{poses,ids,affine:true,tiles:tiles.length>1?tiles:undefined}};
 }
 
-function loadPlacedShape(asset:StreetAsset,blocks:Awaited<ReturnType<typeof drawableBlocks>>,withMaterials:boolean){
+function sharedShapeTint(assets:StreetAsset[]){
+  if(assets[0].kind!=="prop")return undefined;
+  const selector=assets[0].placement?.tintSelector;
+  return assets.every(asset=>asset.placement?.tintSelector===selector)?selector:null;
+}
+
+type PlacementLayer="full"|"partial";
+function sharedPlacementLayer(assets:StreetAsset[]):PlacementLayer|undefined{
+  if(assets[0].kind!=="prop")return;
+  const first=assets[0].placement?.propLayerControl;
+  if(first===undefined)return;
+  const full=first===255;
+  if(assets.every(asset=>asset.placement?.propLayerControl!==undefined&&(asset.placement.propLayerControl===255)===full))
+    return full?"full":"partial";
+}
+
+function loadPlacedShape(asset:StreetAsset,blocks:Awaited<ReturnType<typeof drawableBlocks>>,withMaterials:boolean,
+  selector:number|null|undefined,signFont?:StreetSignFont,placementLayer?:PlacementLayer){
   const vertices:number[]=[],indices:number[]=[],appearance:AppearanceBuilder={uv:[],spans:[],normals:[],
-    foliage:asset.kind==="foliage",ordinaryPropLayers:asset.kind==="prop"?true:undefined};
-  const identity:Placement={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1]};
+    foliage:asset.kind==="foliage",ordinaryPropLayers:asset.kind==="prop"?true:undefined,
+    mixedTintSelectors:selector===null?true:undefined,signFont,placementLayer};
+  const identity:Placement={position:[0,0,0],rotation:[0,0,0,1],scale:[1,1],tintSelector:selector??undefined,
+    signLabel:asset.placement?.signLabel};
   appendDrawable(blocks,asset,0,0,identity,identity.position,66,vertices,indices,true,withMaterials?appearance:undefined,
     asset.parts,asset.geometryDescriptor??(asset.indexed?indexedDescriptor(blocks.metadata,asset):undefined));
   if(!indices.length)throw new Error("Empty instanced drawable.");
@@ -963,10 +1052,13 @@ async function loadPlacedBatch(id:string,assets:StreetAsset[],table:(range:numbe
     ?new Uint8Array(assets.length).fill(0xff):undefined;
   const propLayerControls=tintSelectors&&mesh.appearance?.spans.some(span=>span.propLayers)
     ?new Uint8Array(assets.length):undefined;
-  const propDirtControls=propLayerControls&&mesh.appearance?.spans.some(span=>span.propLayers?.dirt)&&
-    assets.every(row=>row.placement?.propDirtControl!==undefined)?new Uint8Array(assets.length):undefined;
+  const hasInstancePalette=mesh.appearance?.spans.some(span=>span.instancePalette);
+  const propDirtControls=(tintSelectors&&hasInstancePalette&&!propLayerControls||propLayerControls&&
+    (hasInstancePalette||mesh.appearance?.spans.some(span=>span.propLayers?.dirt))&&
+    assets.every(row=>row.placement?.propDirtControl!==undefined))
+    ?new Uint8Array(assets.length):undefined;
   for(const item of assets){
-    const {position,rotation,scale,tintSelector,propLayerControl}=item.placement??readPlacement(await table(item.instance),item.at,item.hash);
+    const {position,rotation,scale,tintSelector,propLayerControl,propDirtControl}=item.placement??readPlacement(await table(item.instance),item.at,item.hash);
     const local=position.map((value,axis)=>value-origin[axis]);
     poses.push(...local,...rotation,...scale);
     if(tintSelectors&&tintSelector!==undefined)tintSelectors[ids.length]=tintSelector;
@@ -974,7 +1066,7 @@ async function loadPlacedBatch(id:string,assets:StreetAsset[],table:(range:numbe
       if(propLayerControl===undefined)tintSelectors![ids.length]=0xff;
       else propLayerControls[ids.length]=propLayerControl;
     }
-    if(propDirtControls)propDirtControls[ids.length]=item.placement!.propDirtControl!;
+    if(propDirtControls)propDirtControls[ids.length]=propDirtControl??255;
     if(tiles){
       const transform=placedVertex({position,rotation,scale},origin),box=emptyBounds();
       for(let corner=0;corner<8;corner++){
@@ -1010,6 +1102,8 @@ function matchedGroundAtlas(vertices:number[],appearance:AppearanceBuilder){
 export async function loadStreetAsset(archive:Archive,asset:StreetAsset,withMaterials:boolean,
   instances:Promise<DataView>|undefined=undefined,
   resource=asset.indexed?indexedDrawableBlocks(archive,asset):drawableBlocks(archive,asset.streams,asset.system)):Promise<StreetChunk>{
+  if(asset.batchStreams)return loadPropBatch(archive,asset,resource,
+    asset.affineProps?undefined:drawableBlocks(archive,asset.batchStreams),withMaterials);
   const [placement,blocks]=await Promise.all([asset.placement??(instances??placementTable(archive,asset.instance,asset.indexed))
     .then(table=>readPlacement(table,asset.at,asset.hash)),resource]);
   const vertices:number[]=[],indices:number[]=[];
@@ -1120,57 +1214,8 @@ function chunk(id:string,kind:StreetChunk["kind"],origin:Vec3,vertices:number[],
 
 const system=0x50000000,graphics=0x60000000;
 const structureDecals=new Set(["0x388e79a4f59411dd","0x5cc420b2b8f3eb8c"]);
-// Standard object decal and dirt passes composite over an opaque base material.
-const decalBlendEffect=0xd41ddcc3;
-const propDecalBlendEffect=0xc8fd534c;
-const layeredPropDecalEffect=0x990e2a3c;
-const layeredObjectDecalEffect=0x274d56ce; // standard_2lyr_decal
-const retroDecalEffect=0x0b3ca885; // standard_2lyr_retroreflection_decal_blend
-const immersedDecalEffect=0x4431c5c3;
-const layeredSurfaceDecals=new Set([immersedDecalEffect,0xb637d50d]);
-const exteriorGlassEffects=new Set([0x298c4c0f,0x653582a4,0xe3ba3129]);
-const luminousSurfaceEffects=new Set([0xfaec4fc8,0x3a09c775,0x3bc8ac60,0x60643f2e]);
-const dirtEffect=0x512937b5; // standard_dirt
-const clothDirtEffect=0x68e93cdf; // standard_dirt_secmo
-const layeredPavementEffect=0x1251cae5; // standard_2lyr_pxm_ground
-const signBackingEffect=0x7f04a63a;
-const signGlyphEffect=0x9eedd8db;
-const tintedClothEffect=0x05e643cb;
-// Foliage materials also occur on standalone drawables such as planters and driftwood.
-const reflectedDiffuseEffects=new Set([0x28d751f1,0x578bb142,0x40be6a4d]);
-const surfaceOpacityEffects=new Set([0x0ca0d9a0,0xec8e6107]);
-const objectDecalEffects=new Set([
-  decalBlendEffect,layeredObjectDecalEffect,0x037206ee,
-  0xcb0ad158, // Cloth lettering uses diffuse alpha coverage.
-  0xe0b4c573, // standard_decal
-  0xea9cce3a, // standard_pxm_decal
-  0x5ee453cc, // standard_decal_ground
-]);
-const objectDirtEffects=new Set([0xc18881f1,0xaf83d7c6,0x5d3b9bfa,0xcbe2712d]);
 // Elevated freeway blocks use the same reflected blend on a standalone drawable.
 const elevatedRoadDrawable=/^[a-z][a-z0-9]*_fw_\d+_block_/i;
-const layeredGroundEffects=new Set([0x61e09df7,0x0ad54cb9,0x388f8fb6]);
-const singleSidedLandscapeEffects=new Set([0x360e396b,0x27e5c49d,0x0ad54cb9,0x76fcff28]);
-const mixedProjectedGroundEffect=0x6f968246;
-const uv3LandscapeEffect=0x27e5c49d; // standard_uber_4lyr_pxm_hbb_uv3
-const spxUV3LandscapeEffect=0x76fcff28; // standard_uber_4lyr_spx_dm_hbb_uv3
-const fixedUVLandscapeEffect=0xb21f1ba5; // standard_uber_4lyr_pxm_hbb_fixuv1
-const uberGroundEffects=new Set([
-  0x4a579bbf, // standard_uber_4lyr_pxm_hbb
-  uv3LandscapeEffect,
-  fixedUVLandscapeEffect,
-  0x61fad45c, // standard_uber_4lyr_dpm_dfm_dm_hbb
-  0xf8e1f225, // standard_uber_4lyr_dfm_dm_hbb_uv3
-  0x40497278, // standard_uber_4lyr_dpm_dfm_dm_hbb_uv3
-]);
-const reflectedGroundDecals=new Set([0xde6b843d,0x42c64b5e]);
-// These road decals have a readable DiffuseTex and a verified COLOR0 opacity channel.
-const roadDiffuseDecals=new Map([
-  ["0x64d60e6f640d72cd",0xec8e6107],
-  ["0x67285ccaf7a007e1",0x0ca0d9a0],
-  ["0xf43aa4d9144dd323",0x0ca0d9a0],
-  ["0x2599e2e9ad7685cd",0x70746df0],
-]);
 function pointer(source:DataView,at:number,base:number,size:number,limit=source.byteLength){
   const address=source.getBigUint64(at,true)-BigInt(base);
   if(address<0n||address+BigInt(size)>BigInt(limit))throw new Error("Invalid tunnel drawable reference.");
@@ -1256,11 +1301,11 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     if(vertexWeights||parameters<0||data.getUint8(parameters+1)<17)return;
     // These terrain passes bind the same layer layout despite the extra
     // samplers in the uber shader. Require the reflected texture roles.
-    for(const [slot,hash] of [[2,0xc075f9b6],[9,0x32b9df09],[12,0xd883aa9e],[13,0x3d10f3b7],[14,0xce7b968e]]){
+    for(const [slot,hash] of layerProjectionBindingSlots){
       const at=parameters+8+slot*8;
       if(data.getUint32(at,true)!==hash||data.getUint32(at+4,true)!==slot*4)return;
     }
-  }else if(!layeredGroundEffects.has(effect)||vertexWeights&&effect===0x388f8fb6)return;
+  }else if(!layeredGroundEffects.has(effect)||vertexWeights&&effect===sectorBlendedGroundEffect)return;
   const buffers=systemReference(data,material+8,16);
   const constants=buffers<0?-1:systemReference(data,buffers+8,0x120);
   if(constants<0)return;
@@ -1272,15 +1317,15 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
   if(channels.some(value=>value!==0)&&(!mixedProjected||channels.some(value=>value!==0&&value!==1)))return;
   const primary=vec(0),selectors=vec(0x20);
   const [maskUV,maskSampling,tintUV,tintSampling]=vec(0x70);
-  const mixedLocal=effect===0x61e09df7&&selectors.includes(2);
+  const mixedLocal=effect===vertexBlendedGroundEffect&&selectors.includes(2);
   if(mixedLocal&&(vertexWeights||primary.join()!=="1,1,0,0"||maskUV!==1||maskSampling!==0||
     systemReference(data,buffers+8,0x1b0)!==constants||vec(0x150).some(value=>value!==0)||
     vec(0x190).join()!=="1,0,0,0"||vec(0x1a0).join()!=="0,1,1,0"))return;
   // Keep the same sector colors on fixed-UV ground and its mixed-UV neighbors
   // when the strip material belongs to the projected sector layout.
   const sectorStrip=effect===fixedUVLandscapeEffect&&maskUV===1&&maskSampling===1&&tintUV===1&&tintSampling===2;
-  const mixedSector=mixedProjected||effect===0x388f8fb6&&(maskUV!==1||selectors.includes(2));
-  const localEffect=hasGroundAtlas&&effect===0x388f8fb6&&mixedSector;
+  const mixedSector=mixedProjected||effect===sectorBlendedGroundEffect&&(maskUV!==1||selectors.includes(2));
+  const localEffect=hasGroundAtlas&&effect===sectorBlendedGroundEffect&&mixedSector;
   const tintSamplingSupported=tintUV===1&&tintSampling===2;
   const insetUV3=hasGroundAtlas&&(effect===uv3LandscapeEffect||spx)&&maskUV===3&&maskSampling===0&&tintSamplingSupported;
   const [vertexFirst,complexVertexTint]=localEffect?vec(0x160):insetUV3?vec(0x180):[0,0];
@@ -1294,7 +1339,7 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     [vertexFirst,tintAlpha,vertexAlpha].every(value=>value===0||value===1);
   const nativeBlend=nativeLocalBlend||nativeUV3Blend;
   const projectedDetail=hasGroundAtlas&&(sectorStrip||mixedSector&&!nativeLocalBlend);
-  const vertexBlend=!vertexWeights&&((projectedDetail&&mixedSector)||nativeBlend||mixedLocal||effect===0x4a579bbf||effect===0x61fad45c||effect===uv3LandscapeEffect);
+  const vertexBlend=!vertexWeights&&((projectedDetail&&mixedSector)||nativeBlend||mixedLocal||effect===uberGroundEffect||effect===dpmUberGroundEffect||effect===uv3LandscapeEffect);
   if(vertexWeights){
     // Both tunnel variants share this vertex-weighted local blend.
     const [scaleU,scaleV,offsetU,offsetV]=primary;
@@ -1399,15 +1444,16 @@ function terrainLayers(data:DataView,material:number,vertexWeights:boolean,hasGr
     projectedDetail:projectedDetail?true:undefined,nativeLocalBlend:nativeBlend?true:undefined,detail,vertexBlend:vertexBlend?true:undefined,maskUV:vertexBlend&&maskUV===3?3:undefined};
 }
 
-function twoLayerDecal(data:DataView,material:number,packed:string|null):{primary:string;layers:DecalLayers;retroBlend?:number}|undefined{
+function twoLayerDecal(data:DataView,material:number,packed:string|null,ground:boolean):
+  {primary:string;layers:DecalLayers;retroBlend?:number;retroPrimaryUV0?:true}|undefined{
   const effect=material>=0?data.getUint32(material,true):0;
   if((reflectedGroundDecals.has(effect)||layeredSurfaceDecals.has(effect))&&data.getUint32(material+4,true)===0x6d657461){
     const parameters=systemReference(data,material+0x20,72);
     if(parameters<0||data.getUint8(parameters)!==1||data.getUint8(parameters+1)<8)return;
     const matches=(slot:number,hash:number)=>data.getUint32(parameters+8+8*slot,true)===hash&&
       data.getUint32(parameters+12+8*slot,true)===4*slot;
-    if(layeredSurfaceDecals.has(effect)&&!matches(0,0x4d56d7fe))return;
-    if(!matches(7,0x346394ea)||!matches(2,0x7d4f12e2))return;
+    if(layeredSurfaceDecals.has(effect)&&!matches(0,layerTwoMaterialABindingHash))return;
+    if(!matches(7,layerOneDiffuseBindingHash)||!matches(2,layerTwoDiffuseBindingHash))return;
     const primary=colorBinding(data,material,7),secondary=colorBinding(data,material,2);
     if(primary&&secondary)return {primary,layers:[secondary]};
     return;
@@ -1418,25 +1464,31 @@ function twoLayerDecal(data:DataView,material:number,packed:string|null):{primar
     const c=constants<0?-1:systemReference(data,constants,0x128);
     if(c<0)return;
     const f=(offset:number)=>data.getFloat32(c+offset,true);
-    const primary=reflectedColorBinding(data,material,0x346394ea);
-    const secondary=reflectedColorBinding(data,material,0x7d4f12e2);
+    const primary=reflectedColorBinding(data,material,layerOneDiffuseBindingHash);
+    const secondary=reflectedColorBinding(data,material,layerTwoDiffuseBindingHash);
     if(!primary||!secondary||!control)return;
     // Same-coordinate lane paint uses the two diffuse layers and their
     // vertex blend. The material-A block is never a visible paint color.
     if(control==="0xc15d09760dac448e"&&f(0x14)===1&&f(0x100)===1)
       return {primary,layers:[secondary]};
     if(!retroDecalControls.has(control))return;
-    if(f(0x14)!==2||[0x48,0x50,0x54,0x74,0x88,0x98].some(offset=>f(offset)!==1)||
+    const primaryUV0=ground&&f(0x14)===1&&f(0x48)===2;
+    if(!primaryUV0&&(f(0x14)!==2||f(0x48)!==1)||
+      [0x50,0x54,0x74,0x88,0x98].some(offset=>f(offset)!==1)||
       [0x80,0x84,0x8c,0x94,0x9c,0x120,0x124].some(offset=>f(offset)!==0))return;
     const sharpness=f(0x90);
-    if(sharpness===Math.fround(.3)||sharpness===Math.fround(.36))
+    // This paint permutation reverses the two diffuse UV selectors while
+    // keeping the control sample on the primary UV stream.
+    if(primaryUV0&&sharpness===.25&&f(0x100)===1)
+      return {primary,layers:[secondary,control],retroBlend:1/(sharpness*sharpness),retroPrimaryUV0:true};
+    if(!primaryUV0&&(sharpness===Math.fround(.3)||sharpness===Math.fround(.36)))
       return {primary,layers:[secondary,control],retroBlend:1/(sharpness*sharpness)};
     return;
   }
   if(material<0||packed!=="0x793537a81856c06a"||data.getUint32(material,true)!==0x4f0b809b)return;
   const reflection=systemReference(data,material+0x20,72);
-  if(reflection<0||data.getUint32(reflection+8+2*8,true)!==0x7d4f12e2||
-    data.getUint32(reflection+8+7*8,true)!==0x346394ea)return;
+  if(reflection<0||data.getUint32(reflection+8+2*8,true)!==layerTwoDiffuseBindingHash||
+    data.getUint32(reflection+8+7*8,true)!==layerOneDiffuseBindingHash)return;
   const constants=systemReference(data,material+8,8);
   const c=constants<0?-1:systemReference(data,constants,0x130);
   if(c<0||data.getFloat32(c+0x14,true)!==1||data.getFloat32(c+0x4c,true)!==1||
@@ -1453,7 +1505,7 @@ function twoLayerDecal(data:DataView,material:number,packed:string|null):{primar
 }
 
 function sharedDecalDiffuse(data:DataView,material:number,packed:string|null){
-  if(material<0||packed!=="0xa783d1d19cba9f92"||data.getUint32(material,true)!==0x274d56ce)return;
+  if(material<0||packed!=="0xa783d1d19cba9f92"||data.getUint32(material,true)!==layeredObjectDecalEffect)return;
   const constants=systemReference(data,material+8,8);
   const c=constants<0?-1:systemReference(data,constants,0x6c);
   if(c<0||[0x14,0x44,0x48,0x4c,0x68].some(offset=>data.getFloat32(c+offset,true)!==1))return;
@@ -1465,11 +1517,10 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
   zeroAuxiliary?:()=>boolean,hasAtlas=false,placement?:Placement):RoadLayers|undefined{
   if(material<0)return;
   const effect=data.getUint32(material,true);
-  if(effect!==0x360e396b&&!(ground&&effect===0x76fcff28))return;
+  if(effect!==projectedRoadEffect&&!(ground&&effect===spxUV3LandscapeEffect))return;
   if(elevated){
-    const roles=[[2,0xc075f9b6],[9,0x32b9df09],[12,0xd883aa9e],[13,0x3d10f3b7],[14,0xce7b968e]];
     const reflection=systemReference(data,material+0x20,8+15*8);
-    if(reflection<0||data.getUint8(reflection+1)<15||!roles.every(([slot,hash])=>
+    if(reflection<0||data.getUint8(reflection+1)<15||!layerProjectionBindingSlots.every(([slot,hash])=>
       data.getUint32(reflection+8+slot*8,true)===hash&&data.getUint32(reflection+12+slot*8,true)===slot*4))return;
   }
   const mask=opaqueWeights?null:colorBinding(data,material,2);
@@ -1486,26 +1537,33 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
   const sampling=vec(0x90).join();
   // The inset sector tint is already baked into the projected color. Use the
   // authored tiled layers for close-up detail and retain that sector color.
-  const projectedUV3=ground&&(effect===0x360e396b&&projection==="3,0,1,1"&&sampling==="1,1,0,0"||
-    projection==="3,0,1,2"&&sampling===(effect===0x76fcff28?"3,0,0,0":"1,2,0,0"));
+  const projectedUV3=ground&&(effect===projectedRoadEffect&&projection==="3,0,1,1"&&sampling==="1,1,0,0"||
+    projection==="3,0,1,2"&&sampling===(effect===spxUV3LandscapeEffect?"3,0,0,0":"1,2,0,0"));
   // Local roads with an active sector tint can use the atlas for paint and
   // the authored four layers for detail. This variant samples its mask on UV0.
-  const projectedUV0=ground&&!elevated&&hasAtlas&&effect===0x360e396b&&
+  const projectedUV0=ground&&!elevated&&hasAtlas&&effect===projectedRoadEffect&&
     projection==="1,0,1,0"&&sampling==="1,0,0,0"&&systemReference(data,buffers+8,0x1a0)===constants&&
     vec(0x130).every(value=>value===1)&&vec(0x150).every(value=>value===1)&&vec(0x190).join()==="0,1,1,0"&&
     Boolean(colorBinding(data,material,16))&&zeroAuxiliary?.()===true;
   const projectedColor=projectedUV3||projectedUV0;
-  const authoredMaskUV3=ground&&effect===0x360e396b&&projection==="3,0,1,0"&&sampling==="1,0,0,0";
-  const authoredMaskUV1=ground&&!elevated&&effect===0x360e396b&&projection==="2,0,1,0"&&sampling==="1,0,0,0"&&
+  const authoredMaskUV3=ground&&effect===projectedRoadEffect&&projection==="3,0,1,0"&&sampling==="1,0,0,0";
+  const authoredMaskUV1=ground&&!elevated&&effect===projectedRoadEffect&&projection==="2,0,1,0"&&sampling==="1,0,0,0"&&
     vec(0x80).join()==="1,1,0,0"&&zeroAuxiliary?.()===true;
+  // The local UV0 road binds every height lane, including zero cutoffs.
+  const authoredMaskUV0=ground&&!elevated&&effect===projectedRoadEffect&&projection==="1,0,1,0"&&sampling==="1,0,0,0"&&
+    systemReference(data,buffers+8,0x1a0)===constants&&vec(0x80).join()==="1,1,0,0"&&
+    vec(0x190).join()==="0,1,0,0"&&vec(0x100).some(value=>value>0)&&zeroAuxiliary?.()===true;
   const maskUV=opaqueWeights?undefined:authoredMaskUV1?1:projectedUV3||authoredMaskUV3?3:undefined;
-  const localVertexColor=projectedUV3&&!elevated&&effect===0x76fcff28&&
+  const localVertexColor=projectedUV3&&!elevated&&effect===spxUV3LandscapeEffect&&
     systemReference(data,buffers+8,0x19c)===constants&&vec(0x20).every(value=>value===1)&&
     vec(0x140).every(value=>value===0)&&[0x160,0x170].every(offset=>vec(offset).every(value=>value===1))&&
     data.getFloat32(constants+0x180,true)===1&&data.getFloat32(constants+0x184,true)===0&&zeroAuxiliary?.()===true;
-  const authoredHeight=localVertexColor||authoredMaskUV1||authoredMaskUV3&&!elevated&&zeroAuxiliary?.()===true;
+  const heightSlots=[4,0,5,1];
+  const projectedHeight=projectedUV0&&heightSlots.every(slot=>colorBinding(data,material,slot));
+  const authoredHeight=projectedHeight||localVertexColor||authoredMaskUV0||authoredMaskUV1||
+    authoredMaskUV3&&!elevated&&zeroAuxiliary?.()===true;
   let tint:RoadLayers["tint"];
-  if(ground&&effect===0x360e396b&&projection==="1,0,1,1"){
+  if(ground&&effect===projectedRoadEffect&&projection==="1,0,1,1"){
     if(systemReference(data,buffers+8,0x160)!==constants||vec(0x130).some(value=>value!==1))return;
     const key=colorBinding(data,material,16),scale=vec(0x140),amount=vec(0x150);
     if(!key||scale.some(value=>!(value>=0&&value<=4))||amount.some(value=>!(value>=0&&value<=1)))return;
@@ -1519,9 +1577,22 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
     if(key&&[...amount,...vertexAmount].every(value=>value>=0&&value<=1))
       tint={texture:roadSurfaceTintPrefix+key,scale:[1,1,1,1],amount,surfaceAlpha:true,vertexAmount};
   }
+  if(projectedHeight&&vec(0x120).every(value=>value===1)&&
+    data.getFloat32(constants+0x180,true)===1&&data.getFloat32(constants+0x184,true)===0){
+    const key=colorBinding(data,material,16),amount=vec(0x140),vertexAmount=vec(0x170),vertexScale=vec(0x160);
+    if(key&&[...amount,...vertexAmount].every(value=>value>=0&&value<=1)&&vertexScale.every(value=>value>=0&&value<=4))
+      tint={texture:roadSurfaceTintPrefix+key,scale:[1,1,1,1],amount,surfaceAlpha:true,vertexAmount,vertexScale};
+  }
   let detail:RoadLayers["detail"];
-  if(authoredHeight&&placement&&systemReference(data,buffers+8,0x250)===constants&&
-    (localVertexColor||authoredMaskUV1||vec(0xc0).every(value=>value===0))){
+  let normals:RoadLayers["normals"];
+  if(projectedHeight){
+    const keys=[15,10,11,7].map(slot=>colorBinding(data,material,slot));
+    const strength=vec(0x60);
+    if(keys.every((key):key is string=>Boolean(key))&&strength.every(value=>value>=0&&value<=4))
+      normals={textures:keys.map(key=>terrainTexturePrefix+"normal:"+key) as NonNullable<RoadLayers["normals"]>["textures"],strength};
+  }
+  if((authoredHeight||projectedUV0)&&placement&&systemReference(data,buffers+8,0x250)===constants&&
+    (localVertexColor||authoredMaskUV0||authoredMaskUV1||projectedUV0||vec(0xc0).every(value=>value===0))){
     const slots=systemReference(data,material+0x10,7*8);
     const small=systemReference(data,buffers,0x58);
     // This effect's empty slot six resolves the shared mapdetail_atlas.
@@ -1536,7 +1607,8 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
           Number.isFinite(basis*v)&&basis*v>0)&&strength.every(value=>value>=0&&value<=1)){
         detail={textures:slices.map(slice=>detailAtlasSlicePrefix+slice) as NonNullable<RoadLayers["detail"]>["textures"],
           u:scales.map(scale=>scale[2]*basis) as RoadLayers["primary"],
-          v:scales.map(scale=>scale[3]*basis) as RoadLayers["primary"],strength};
+          v:scales.map(scale=>scale[3]*basis) as RoadLayers["primary"],strength,
+          normalStrength:authoredMaskUV0||projectedUV0?scales.map(scale=>scale[1]) as RoadLayers["primary"]:undefined};
       }
     }
   }
@@ -1544,14 +1616,15 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
   let height:RoadLayers["height"];
   if(authoredHeight||cutoff.some(v=>v!==0)||gain.some(v=>v!==1)){
     if(!ground||cutoff.some(v=>!(v>=0&&v<=1))||gain.some(v=>!(v>=0&&v<=8)))return;
-    const textures=[4,0,5,1].map((slot,i)=>{
+    const textures=heightSlots.map((slot,i)=>{
       const key=authoredHeight||cutoff[i]>.01&&gain[i]>0?colorBinding(data,material,slot):null;
       return key?roadHeightPrefix+key:null;
     }) as NonNullable<RoadLayers["height"]>["textures"];
     if(textures.some((key,i)=>(authoredHeight||cutoff[i]>.01&&gain[i]>0)&&!key))return;
-    height={textures,gain,cutoff,authored:authoredHeight?true:undefined};
+    // The projected sector remains available while the extra maps stream in.
+    height={textures,gain,cutoff,authored:authoredHeight?true:undefined,optional:projectedHeight?true:undefined};
   }
-  const mode=effect===0x76fcff28?"3,0,0,0":"1,0,0,0";
+  const mode=effect===spxUV3LandscapeEffect?"3,0,0,0":"1,0,0,0";
   if(!projectedColor&&vec(0x90).join(",")!==mode)return;
   const selectors=vec(0x20);
   if(ground&&(selectors.some(v=>v!==1&&v!==2)||vec(0x30).some(v=>v!==0)))return;
@@ -1564,7 +1637,7 @@ function roadLayers(data:DataView,material:number,ground=false,opaqueWeights=fal
   const parallax:RoadLayers["parallax"]=control&&[...strength,...center,...refine].every(Number.isFinite)&&
     refine.some(value=>value>0)&&refine.every(value=>value>=0)?
     {texture:roadControlPrefix+control,origin:[0,0],strength,center,refine}:undefined;
-  const parameters:Omit<RoadLayers,"textures">={primary,secondary,powers,primaryLayers,height,tint,detail,maskUV,parallax,
+  const parameters:Omit<RoadLayers,"textures">={primary,secondary,powers,primaryLayers,height,tint,detail,normals,maskUV,parallax,
     useProjectedColor:projectedColor?true:undefined,localVertexColor:localVertexColor?true:undefined};
   const weightPrefix=elevated?elevatedRoadWeightPrefix:projectedUV0?projectedRoadWeightPrefix:roadWeightPrefix;
   return mask?{textures:[ground?weightPrefix+mask:mask,red,green,blue,residual],...parameters}:
@@ -1926,6 +1999,20 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
     const ordinal=ordinals[piece]??(geometryParts?undefined:piece);
     const binding=!appearance||ordinal===undefined||ordinal>=count?-1:systemReference(data,rows+ordinal*8,61);
     const effect=binding<0?0:data.getUint32(binding,true);
+    const bucket=binding<0?0:data.getUint8(binding+57);
+    // This deferred light projection samples the screen normal and contributes
+    // to lighting. Drawing its proxy as opaque color hides the receiver.
+    if(effect===emissiveLightmapEffect&&bucket===1)continue; // standard_emissive_lightmap_v2
+    if(effect===runtimeSignEffect&&bucket===2){
+      const table=systemReference(data,binding+8,8),constants=systemReference(data,table,0x44);
+      // The local slot is a mask. With the mask disabled, the deferred pass
+      // uses its runtime glyph layout for all visible color and coverage.
+      if(constants>=0&&data.getFloat32(constants+0x40,true)===0){
+        if(withColors&&appearance?.signFont&&placement.signLabel&&data.getUint32(constants+0x3c,true)===0)
+          appendRuntimeSign(gpu,v,i,placement,origin,material,vertices,indices,appearance,appearance.signFont);
+        continue;
+      }
+    }
     const waterPart=appearance?.mixedWater&&authoredWaterEffects.has(effect);
     const surface=material===66&&ground===undefined&&exteriorGlassEffects.has(effect)?77:
       material===66&&ground===undefined&&luminousSurfaceEffects.has(effect)?78:material+(singleMaterial?0:piece);
@@ -1948,13 +2035,12 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       }
       const normals=appearance.normals&&normalStream(gpu,v,vertexCount,placement);
       if(normals)appearance.normals?.push({first:base,values:normals});
-      const bucket=binding<0?0:data.getUint8(binding+57);
       if(withColors&&ground===false&&effect===fixedUVLandscapeEffect&&bucket===0&&ordinal!==undefined&&groundFallback&&normals){
         const name=typeof drawable==="string"?drawable:drawable.name;
         if(appendSectorTerrainPage(data,gpu,binding,v,base,vertexCount,origin,vertices,indices,first,appearance,
           name,ordinal,part,groundFallback,normals,placement))continue;
       }
-      if(withColors&&ground===false&&effect===0x61e09df7&&bucket===0&&ordinal!==undefined){
+      if(withColors&&ground===false&&effect===vertexBlendedGroundEffect&&bucket===0&&ordinal!==undefined){
         const name=typeof drawable==="string"?drawable:drawable.name;
         const flatNormals=!placement.linear&&placement.scale[0]===placement.scale[1]?normals:undefined;
         if(appendDynamicTerrain(data,gpu,binding,v,base,vertexCount,origin,vertices,indices,first,appearance,
@@ -1976,21 +2062,8 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       }
       const reflectedDiffuse=binding>=0&&(appearance.foliage||reflectedDiffuseEffects.has(effect));
       let texture=withColors&&uv
-        ?reflectedDiffuse?reflectedColorBinding(data,binding,0xc8e8c282,0):colorBinding(data,binding)
+        ?reflectedDiffuse?reflectedColorBinding(data,binding,diffuseBindingHash,0):colorBinding(data,binding)
         :null;
-      if(texture&&material===66&&ground===undefined&&!appearance.foliage&&effect===0xbcf03fc1&&bucket===0&&
-        placement.tintSelector!==undefined&&reflectedColorBinding(data,binding,0xc8e8c282)===texture){
-        const table=systemReference(data,binding+8,8),constants=table<0?-1:systemReference(data,table,0xa0);
-        // This standard permutation mixes palette RGB by diffuse alpha.
-        // Its secondary material tint is disabled.
-        if(constants>=0&&data.getFloat32(constants+0x98,true)===1&&data.getFloat32(constants+0x9c,true)===0){
-          const values=vertexPaletteColors(data,gpu,model,binding,v,vertexCount,placement.tintSelector);
-          if(values?.every((value,i)=>i%4!==3||value===255)&&values.some(value=>value!==255)){
-            for(let j=0;j<vertexCount;j++)vertices[(base+j)*4+3]=standardPaletteMaterial;
-            (appearance.terrainColors??=[]).push({first:base,values});
-          }
-        }
-      }
       // grass_batch and grass_batch_wind pass a separate packed RGB tint to the diffuse pass.
       if(texture&&appearance.foliage&&bucket===131&&(effect===0x10d73576||effect===0x3b0cbedb)){
         const tintStrengthOffset=effect===0x10d73576?0x80:0xbc;
@@ -2011,24 +2084,113 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       }
       // The caustics-only variant shares a neutral placeholder between its
       // layers. Its animated detail maps are not the receiver's paint.
-      const causticsOnly=bucket===2&&effect===0x617b869f&&texture==="0xaa3eeff23a15dc75"&&
-        reflectedColorBinding(data,binding,0x2bb2ede8)===texture;
+      const causticsOnly=bucket===2&&effect===0x617b869f&&texture===waterCausticsTexture&&
+        reflectedColorBinding(data,binding,layerOneMaterialABindingHash)===texture;
       if(causticsOnly)texture=null;
       const primaryUV=uvStream(gpu,v,vertexCount,0x0c);
       const staticParallax=effect===0xb217b263;
       const layeredPavement=ground===false&&effect===layeredPavementEffect;
+      const layeredGround=ground===false&&effect===layeredGroundEffect; // standard_2lyr_ground
       const staticMaterial=withColors&&singleMaterial&&texture&&bucket===0&&
-        (material===66&&ground===undefined&&(effect===0x77d8ab27||staticParallax)||layeredPavement)&&
-        staticMaterialLayers(data,gpu,model,binding,v,vertexCount,base,appearance,placement,staticParallax,layeredPavement)||undefined;
+        (material===66&&ground===undefined&&(effect===0x77d8ab27||staticParallax)||layeredPavement||layeredGround)&&
+        staticMaterialLayers(data,gpu,model,binding,v,vertexCount,base,appearance,placement,
+          staticParallax,layeredPavement,layeredGround)||
+        withColors&&material===66&&ground===undefined&&texture&&bucket===128&&effect===layeredRoadSignEffect&&
+        readLayeredRoadSign(data,gpu,model,binding,v,vertexCount,base,appearance,placement)||undefined;
       const staticLayers=staticMaterial?.layers;
       if(staticMaterial)uv=staticMaterial.uv;
       if(staticLayers?.normals&&normals){
         const tangent=terrainTangentStream(gpu,v,vertexCount,placement);
         if(tangent)(appearance.terrainTangents??=[]).push({first:base,values:tangent});
       }
-      let surfacePalette=withColors&&material===66&&ground===undefined&&texture&&primaryUV&&bucket===0&&
-        (effect===dirtEffect||effect===clothDirtEffect)&&
-        readDirtPalette(data,gpu,model,binding,v,vertexCount,base,appearance,placement.tintSelector,effect===clothDirtEffect)||undefined;
+      const windCloth=effect===windClothEffect&&bucket===128;
+      const batchPalette=(effect===batchDirtEffect&&bucket===128||windCloth)&&
+        reflectedColorBinding(data,binding,diffuseBindingHash)===texture;
+      const primaryPropPalette=effect===dualLayerPropEffect&&bucket===128&&
+        reflectedColorBinding(data,binding,layerOneDiffuseBindingHash)===texture;
+      const groundPalette=material===65&&ground===false&&bucket===0&&effect===pxmGroundDirtEffect&&
+        reflectedColorBinding(data,binding,diffuseBindingHash)===texture;
+      const objectPalette=material===66&&ground===undefined&&(batchPalette||primaryPropPalette||
+        bucket===0&&(effect===dirtEffect||effect===clothDirtEffect||effect===twoSidedDirtEffect)&&
+          reflectedColorBinding(data,binding,diffuseBindingHash)===texture);
+      const dirtPalette=withColors&&texture&&primaryUV&&(groundPalette||objectPalette)&&
+        readSurfacePalette(data,gpu,model,binding,v,vertexCount,base,appearance,placement,effect)||undefined;
+      let surfacePalette=dirtPalette?.mask;
+      let surfacePaletteAlternate=dirtPalette?.alternate;
+      let instancePalette=dirtPalette?.instancePalette;
+      let pairedSignBacking:true|undefined;
+      if(withColors&&material===66&&ground===undefined&&texture&&primaryUV&&bucket===0&&
+        effect===retroreflectionDirtEffect&&reflectedColorBinding(data,binding,diffuseBindingHash)===texture&&
+        reflectedColorBinding(data,binding,materialBBindingHash)===opaqueMaterialBTexture){
+        const table=systemReference(data,binding+8,8),constants=systemReference(data,table,0xf0);
+        // The neutral mask has full alpha and the alternate dirt blend is disabled.
+        if(constants>=0&&data.getFloat32(constants+0x18,true)===1&&data.getFloat32(constants+0xec,true)===0){
+          const selector=appearance.mixedTintSelectors?undefined:placement.tintSelector??0;
+          const colors=vertexPaletteColors(data,gpu,model,binding,v,vertexCount,selector);
+          if(colors?.every((value,i)=>i%4!==3||value===255)&&colors.some(value=>value!==255)){
+            (appearance.terrainColors??=[]).push({first:base,values:colors});
+            surfacePalette=true;
+            if(ordinals.some(index=>{
+              const other=systemReference(data,rows+index*8,61);
+              return other>=0&&data.getUint32(other,true)===runtimeSignEffect&&data.getUint8(other+57)===2;
+            }))pairedSignBacking=true;
+          }
+        }
+      }
+      const standardDecal=effect===standardDecalEffect&&bucket===2;
+      const groundBlendDecal=ground===false&&bucket===2&&effect===groundBlendDecalEffect;
+      const standardGround=withColors&&material===65&&ground===false&&bucket===0&&effect===standardGroundEffect;
+      const groundPaletteDecal=withColors&&material===65&&ground===false&&(standardDecal||groundBlendDecal)&&
+        reflectedColorBinding(data,binding,materialBBindingHash)===opaqueMaterialBTexture;
+      let groundDecalOpacity:Uint8Array|undefined;
+      const emissivePalette=effect===emissivePaletteEffect&&bucket===0; // standard_emissive_layer
+      const windDecal=effect===windDecalEffect&&bucket===130; // prop_batch_decal_um_wind
+      const standardPalette=effect===standardPaletteEffect&&bucket===0;
+      const placedPalette=standardPalette&&appearance.ordinaryPropLayers&&appearance.mixedTintSelectors;
+      if(texture&&primaryUV&&(material===66&&ground===undefined||standardGround||groundPaletteDecal)&&!appearance.foliage&&
+        (!appearance.mixedTintSelectors||placedPalette)&&(standardPalette||standardGround||standardDecal||groundBlendDecal||emissivePalette||windCloth||windDecal)&&
+        reflectedColorBinding(data,binding,diffuseBindingHash)===texture){
+        const table=systemReference(data,binding+8,8);
+        const offset=windCloth?0xd0:windDecal?0xcc:emissivePalette?0xd4:standardDecal||groundBlendDecal?groundBlendDecalLayout.primaryTintWeight:standardGround?0x94:0x98;
+        const constants=table<0?-1:systemReference(data,table,groundBlendDecal?groundBlendDecalLayout.byteLength:offset+8);
+        const maskWeight=constants<0?-1:data.getFloat32(constants+offset,true);
+        const alternateWeight=constants<0?-1:data.getFloat32(constants+(groundBlendDecal?groundBlendDecalLayout.alternateTintWeight:offset+4),true);
+        const detailSlicesDisabled=groundBlendDecal&&constants>=0&&
+          data.getFloat32(constants+groundBlendDecalLayout.primaryDetailSlice,true)===groundBlendDecalLayout.disabledDetailSlice&&
+          data.getFloat32(constants+groundBlendDecalLayout.secondaryDetailSlice,true)===groundBlendDecalLayout.disabledDetailSlice;
+        const solidGroundDecalMask=groundPaletteDecal&&maskWeight===1&&detailSlicesDisabled;
+        // Primary tint weight is one minus the mask weight times one minus alpha.
+        if(solidGroundDecalMask&&alternateWeight===1){
+          const alternate:[number,number,number,number]=[data.getFloat32(constants+groundBlendDecalLayout.alternateTintRed,true),
+            data.getFloat32(constants+groundBlendDecalLayout.alternateTintGreen,true),
+            data.getFloat32(constants+groundBlendDecalLayout.alternateTintBlue,true),alternateWeight];
+          if(alternate.every(value=>value>=0&&value<=1)){
+            surfacePaletteAlternate=alternate;
+            groundDecalOpacity=colorChannel(gpu,v,vertexCount,4,3);
+            uv=primaryUV;
+          }
+        }else if((maskWeight===0||solidGroundDecalMask||maskWeight===1&&standardPalette&&placement.tintSelector!==undefined)&&
+          alternateWeight===0&&
+          (!groundBlendDecal||detailSlicesDisabled)&&
+          (!(windCloth||windDecal)||data.getFloat32(constants+0x4c,true)===(windCloth?-1:0))){
+          if(groundPaletteDecal){
+            // Preserve authored coverage when the diffuse or its tint is opaque.
+            groundDecalOpacity=colorChannel(gpu,v,vertexCount,4,3);
+            if(groundDecalOpacity)uv=primaryUV;
+          }
+          if(placedPalette){
+            instancePalette=readInstanceSurfacePalette(data,gpu,model,binding,v,vertexCount,base,appearance);
+            if(instancePalette)surfacePalette=true;
+          }else{
+            const values=vertexPaletteColors(data,gpu,model,binding,v,vertexCount,placement.tintSelector??0);
+            if(values?.every((value,i)=>i%4!==3||value===255)&&values.some(value=>value!==255)){
+              (appearance.terrainColors??=[]).push({first:base,values});
+              if(maskWeight===0||solidGroundDecalMask)surfacePalette=true;
+              else for(let j=0;j<vertexCount;j++)vertices[(base+j)*4+3]=standardPaletteMaterial;
+            }
+          }
+        }
+      }
       if(withColors&&material===66&&ground===undefined&&texture&&primaryUV&&
         (effect===signBackingEffect&&bucket===0||effect===tintedClothEffect&&bucket===3)){
         const table=systemReference(data,binding+8,8),constants=table<0?-1:systemReference(data,table,0xe0);
@@ -2041,7 +2203,7 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
           }
         }
       }
-      if(surfacePalette)uv=primaryUV;
+      if(surfacePalette||windDecal&&primaryUV)uv=primaryUV;
       const room=withColors&&singleMaterial&&material===66&&ground===undefined&&texture&&normals&&
         effect===0x281e9287&&bucket===0&&
         readRoomMaterial(data,gpu,model,binding,v,vertexCount,base,appearance,placement,normals)||undefined;
@@ -2049,24 +2211,24 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       const parallax=effect===0xf4e49239&&bucket===128;
       const parallaxTangent=parallax&&normals?terrainTangentStream(gpu,v,vertexCount,placement):undefined;
       const propLayers=appearance.ordinaryPropLayers&&primaryUV&&
-        (effect===0x89c8fe07&&bucket===128||layeredPropDecal||parallaxTangent)&&
+        (effect===dualLayerPropEffect&&bucket===128||layeredPropDecal||parallaxTangent)&&
         propMaterialLayers(data,gpu,model,binding,v,vertexCount,base,appearance,layeredPropDecal,parallax)||undefined;
       if(propLayers){
         uv=primaryUV;
         if(parallaxTangent)(appearance.terrainTangents??=[]).push({first:base,values:parallaxTangent});
       }
       const propDecal=appearance.ordinaryPropLayers&&effect===propDecalBlendEffect&&bucket===130&&primaryUV&&texture&&
-        texture===reflectedColorBinding(data,binding,0xc8e8c282)&&
+        texture===reflectedColorBinding(data,binding,diffuseBindingHash)&&
         propDecalPaletteIsOpaque(data,gpu,model,binding,v,vertexCount);
       // This permutation starts with Layer 1's packed material, which cannot
       // supply the visible decal color while the full blend is unavailable.
       const propDecalDiffuse=appearance.ordinaryPropLayers&&layeredPropDecal&&primaryUV&&
-        reflectedColorBinding(data,binding,0x346394ea);
+        reflectedColorBinding(data,binding,layerOneDiffuseBindingHash);
       if(propDecalDiffuse)texture=propDecalDiffuse;
       if(propDecal||propDecalDiffuse)uv=primaryUV;
-      const immersedColor=bucket===2&&effect===immersedDecalEffect&&texture==="0xaa3eeff23a15dc75"&&
-        reflectedColorBinding(data,binding,0x346394ea);
-      const immersedDecal=Boolean(immersedColor&&primaryUV&&reflectedColorBinding(data,binding,0x7d4f12e2)===immersedColor);
+      const immersedColor=bucket===2&&effect===immersedDecalEffect&&texture===waterCausticsTexture&&
+        reflectedColorBinding(data,binding,layerOneDiffuseBindingHash);
+      const immersedDecal=Boolean(immersedColor&&primaryUV&&reflectedColorBinding(data,binding,layerTwoDiffuseBindingHash)===immersedColor);
       const surfaceDecalBlend=immersedDecal&&material===66&&ground===undefined&&!appearance.ordinaryPropLayers
         ?readSurfaceDecalBlend(data,gpu,binding,v,vertexCount,base,appearance,placement):undefined;
       if(immersedDecal&&immersedColor&&primaryUV){
@@ -2086,7 +2248,7 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       // Slot zero in this decal is a packed layer input. Its BodyTex is the
       // color source when present, while the opaque base draws underneath.
       if(texture&&ground===undefined&&bucket===2&&effect===layeredObjectDecalEffect)
-        texture=reflectedColorBinding(data,binding,0x346394ea);
+        texture=reflectedColorBinding(data,binding,layerOneDiffuseBindingHash);
       const sharedUV=shared?uvStream(gpu,v,vertexCount,0x0c):null;
       let terrain=withColors&&bucket===0&&primaryUV&&ground!==true
         ?terrainLayers(data,binding,ground===undefined&&effect!==uv3LandscapeEffect,Boolean(groundFallback),placement):undefined;
@@ -2101,7 +2263,7 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
           terrain.tint=undefined;terrain.vertexTint=undefined;terrain.detail=undefined;
         }
       }
-      if(terrain?.vertexBlend&&effect===0x61e09df7){
+      if(terrain?.vertexBlend&&effect===vertexBlendedGroundEffect){
         // This local layout blends COLOR1 with the mask. A nonzero auxiliary
         // weight would introduce another layer that the four local bindings lack.
         const extra=packedVertexColor(gpu,v,vertexCount,0x34);
@@ -2130,38 +2292,62 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       // Slot zero is Lyr1MaterialATex in these passes. The packed
       // roughness and cavity data must never cover the receiver as color.
       const layeredSurface=ground===undefined&&bucket===2&&layeredSurfaceDecals.has(effect)&&
-        texture!==null&&reflectedColorBinding(data,binding,0x4d56d7fe)===texture;
+        texture!==null&&reflectedColorBinding(data,binding,layerTwoMaterialABindingHash)===texture;
       const reflectedDecal=bucket===2&&(reflectedGroundDecals.has(effect)||effect===retroDecalEffect||layeredSurface);
       const layered=bucket===2&&texture&&primaryUV&&(reflectedDecal||appearance.decalBlend&&!layeredSurfaceDecals.has(effect))
-        ?twoLayerDecal(data,binding,texture):undefined;
+        ?twoLayerDecal(data,binding,texture,ground===false):undefined;
       const retroChannels=layered?.retroBlend&&(hasRoadMaterials||ground===false)
         ?materialVertexChannels(gpu,v,vertexCount):undefined;
       const two=layered?.retroBlend?(retroChannels?layered:undefined):layered;
       const blend=two?colorChannel(gpu,v,vertexCount,0x30,0):undefined;
       const single=hasRoadMaterials&&bucket===2&&texture!==null&&
         roadDiffuseDecals.get(texture)===effect;
-      const glyph=withColors&&ground===undefined&&material===66&&bucket===2&&effect===signGlyphEffect
-        ?reflectedColorBinding(data,binding,0xcdab98a0):undefined;
+      const glyph=withColors&&ground===undefined&&material===66&&
+        (bucket===2&&(effect===signGlyphEffect||effect===layeredSignGlyphEffect)||bucket===130&&effect===propSignGlyphEffect)
+        ?reflectedColorBinding(data,binding,signGlyphBindingHash):undefined;
       const glyphUV=glyph&&uvStream(gpu,v,vertexCount,0x38);
-      const glyphColors=glyphUV&&vertexPaletteColors(data,gpu,model,binding,v,vertexCount,placement.tintSelector??0);
+      const glyphSelector=effect===propSignGlyphEffect&&appearance.mixedTintSelectors?undefined:placement.tintSelector??0;
+      const glyphColors=glyphUV&&vertexPaletteColors(data,gpu,model,binding,v,vertexCount,glyphSelector);
       if(glyph&&glyphUV&&glyphColors){
         texture=signGlyphPrefix+glyph;
         uv=glyphUV;
         (appearance.terrainColors??=[]).push({first:base,values:glyphColors});
         surfacePalette=true;
       }
-      const surfaceOpacity=bucket===2&&(ground===undefined&&surfaceOpacityEffects.has(effect)||ground===false&&effect===0xec8e6107);
-      const surfaceDecal=ground===undefined&&bucket===2&&(objectDecalEffects.has(effect)||surfaceOpacity||reflectedDecal||immersedDecal||Boolean(glyphColors));
+      const surfaceOpacity=bucket===2&&(
+        ground===undefined&&(surfaceOpacityEffects.has(effect)||standardDecal&&surfacePalette===true)||
+        groundBlendDecal)||ground===undefined&&windDecal&&Boolean(primaryUV&&texture);
+      // Wind-prop lettering uses diffuse alpha and COLOR0.A over opaque cloth.
+      const surfaceDecal=Boolean(glyphColors)||ground===undefined&&
+        (surfaceOpacity||bucket===2&&(objectDecalEffects.has(effect)||reflectedDecal||immersedDecal));
       const frontOnlyDecal=material===66&&surfaceDecal;
       const decalTintMask=frontOnlyDecal&&effect===decalBlendEffect&&texture&&primaryUV&&!appearance.ordinaryPropLayers
         ?standardDecalTint(data,gpu,model,binding,v,vertexCount,base,placement.tintSelector??0,appearance):undefined;
       if(decalTintMask)uv=primaryUV;
       const objectDecal=surfaceDecal||ground===undefined&&bucket===3&&objectDirtEffects.has(effect);
-      const vertexDecal=single||blend||sharedUV;
+      // The native alpha pass transmits the surface behind it. Use its
+      // diffuse and vertex alpha in the viewer's translucent pass.
+      const alphaSurfaceOpacity=bucket===1&&effect===standardAlphaEffect&&material===66&&ground===undefined&&
+        texture&&primaryUV&&reflectedColorBinding(data,binding,diffuseBindingHash)===texture?
+        colorChannel(gpu,v,vertexCount,4,3):undefined;
+      if(alphaSurfaceOpacity)uv=primaryUV;
+      const vertexDecal=single||blend||sharedUV||groundDecalOpacity||alphaSurfaceOpacity;
       // The layered hull decal exports COLOR0.A and multiplies it by the
       // blended diffuse alpha before the deferred pass writes its opacity.
-      const alpha=vertexDecal||surfaceOpacity||immersedDecal||objectDecal&&effect===decalBlendEffect?
-        colorChannel(gpu,v,vertexCount,4,3):undefined;
+      let alpha=groundDecalOpacity??alphaSurfaceOpacity??(vertexDecal||surfaceOpacity||immersedDecal||objectDecal&&effect===decalBlendEffect?
+        colorChannel(gpu,v,vertexCount,4,3):undefined);
+      if(groundBlendDecal){
+        const table=systemReference(data,binding+8,8);
+        const constants=table<0?-1:systemReference(data,table,groundBlendDecalLayout.opacityExponent+Float32Array.BYTES_PER_ELEMENT);
+        if(constants>=0&&data.getFloat32(constants+groundBlendDecalLayout.opacityExponent,true)===1){
+          const scale=data.getFloat32(constants+groundBlendDecalLayout.opacityScale,true);
+          // Apply the authored color-coverage scale in the forward decal blend.
+          if(scale>=0&&scale<1){
+            alpha??=new Uint8Array(vertexCount).fill(255);
+            for(let j=0;j<alpha.length;j++)alpha[j]=Math.round(alpha[j]*scale);
+          }
+        }
+      }
       const decal=propLayers?.dirt?colorChannel(gpu,v,vertexCount,4,3):
         propDecal||propDecalDiffuse?new Uint8Array(vertexCount).fill(255):
         vertexDecal||alpha?.some(value=>value!==255)?alpha:undefined;
@@ -2182,18 +2368,15 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       const noDecalColor=overlay&&bucket===2&&effect===decalBlendEffect&&hasZeroDecalColorOpacity(data,binding)
         ?true:undefined;
       const cutout=withColors&&ground===undefined&&!overlay&&binding>=0&&(data.getUint8(binding+0x3c)&8)!==0;
-      // Standalone landscape drawables use open surfaces. Their backs can cross
-      // the skyline from inside the bounds of the larger mesh.
-      const singleSided=ground===undefined&&material===66&&bucket===0&&singleSidedLandscapeEffects.has(effect);
       // These effects explicitly blend into the ground. Their surface is
       // useful where neither recovered ground LOD covers the same pixels.
-      const groundBlend=ground===false&&bucket===2&&(effect===0x42c64b5e||effect===0xec8e6107);
+      const groundBlend=groundBlendDecal||(ground===false&&bucket===2&&effect===groundSurfaceDecalEffect);
       const fallback=!overlay||groundBlend?groundFallback:undefined;
       const roadMaterial=hasRoadMaterials&&uv&&uv.offset===primaryUV?.offset?roadLayers(data,binding):undefined;
-      const roadEffect=effect===0x360e396b||effect===spxUV3LandscapeEffect;
+      const roadEffect=effect===projectedRoadEffect||effect===spxUV3LandscapeEffect;
       const groundRoad=withColors&&ground===false&&bucket===0&&primaryUV&&roadEffect&&!terrain;
       const drawableName=typeof drawable==="string"?drawable:drawable.name;
-      const elevatedRoad=withColors&&ground===undefined&&material===66&&bucket===0&&primaryUV&&effect===0x360e396b&&
+      const elevatedRoad=withColors&&ground===undefined&&material===66&&bucket===0&&primaryUV&&effect===projectedRoadEffect&&
         (elevatedRoadDrawable.test(drawableName)||roadBridgeDrawable(drawableName));
       const channels=roadMaterial||groundRoad||elevatedRoad?materialVertexChannels(gpu,v,vertexCount):undefined;
       // With opaque vertex weights the source's texture-mask branch contributes zero.
@@ -2244,16 +2427,31 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
         }else (appearance.terrainColors??=[]).push({first:base,
           values:new Uint8Array(gpu.buffer,gpu.byteOffset+offset,vertexCount*4).slice()});
       }
+      const roadDetail=road?.detail;
+      const roadUsesSecondaryFrame=road?.primaryLayers?.some(value=>value===0);
+      const roadNormals=roadDetail?.normalStrength||road?.normals;
+      const roadSecondaryFrame=normals&&(road?.parallax||roadNormals&&roadUsesSecondaryFrame)
+        ?dynamicTangentStream(gpu,v,vertexCount,placement):undefined;
+      if(road&&roadNormals){
+        const roadPrimaryFrame=normals&&terrainTangentStream(gpu,v,vertexCount,placement);
+        if(roadPrimaryFrame&&(!roadUsesSecondaryFrame||roadSecondaryFrame)){
+          (appearance.terrainTangents??=[]).push({first:base,values:roadPrimaryFrame});
+        }else{
+          if(roadDetail)roadDetail.normalStrength=undefined;
+          road.normals=undefined;
+        }
+      }
       if(road?.parallax){
-        const tangent=normals&&dynamicTangentStream(gpu,v,vertexCount,placement);
         const fade=colorChannel(gpu,v,vertexCount,0x34,0);
         const sector=roadControlOrigin(vertices,base,vertexCount,origin,appearance.uv,uvStart);
-        if(road.localVertexColor&&tangent&&fade&&sector){
+        if(road.localVertexColor&&roadSecondaryFrame&&fade&&sector){
           road.parallax.origin=sector;
-          (appearance.terrainSecondaryTangents??=[]).push({first:base,values:tangent});
           // Opaque road geometry uses the otherwise idle overlay opacity attribute.
           (appearance.decalOpacity??=[]).push({first:base,values:fade});
         }else road.parallax=undefined;
+      }
+      if(roadSecondaryFrame&&(road?.parallax||roadDetail?.normalStrength||road?.normals)){
+        (appearance.terrainSecondaryTangents??=[]).push({first:base,values:roadSecondaryFrame});
       }
       if(terrain?.normals){
         const primaryTangent=terrainTangentStream(gpu,v,vertexCount,placement);
@@ -2269,13 +2467,13 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
       let bumpStrength:number|undefined;
       if(material===66&&ground===undefined&&!appearance.foliage&&normals&&texture&&!overlay&&!terrain&&!road&&!room&&!propLayers?.parallax&&
         uv?.offset===primaryUV?.offset){
-        const normal=reflectedColorBinding(data,binding,0x1e77bf4c);
+        const normal=reflectedColorBinding(data,binding,normalBindingHash);
         if(normal&&normal!=="0x984614f3ca6c6fd5"&&normal!==texture){
           const tangent=terrainTangentStream(gpu,v,vertexCount,placement);
           if(tangent){
             (appearance.terrainTangents??=[]).push({first:base,values:tangent});
             bump=terrainTexturePrefix+"normal:"+normal;
-            if(effect===0xbcf03fc1){
+            if(effect===standardPaletteEffect){
               // Standard's first material buffer stores reflected Bumpiness at +0x6c.
               bumpStrength=1;
               const table=systemReference(data,binding+8,8);
@@ -2303,18 +2501,93 @@ function appendDrawable({metadata,gpu}:Awaited<ReturnType<typeof drawableBlocks>
         }
         textureBounds=[left,bottom,low,right,top,high];
       }
+      // Open landscape surfaces can cross the skyline through their backs.
+      // Paired translucent faces need just one contribution at each pixel.
+      const singleSided=ground===undefined&&material===66&&bucket===0&&singleSidedLandscapeEffects.has(effect)||
+        Boolean(alphaSurfaceOpacity&&texture&&opposingSurfaceFaces(vertices,indices,first,base,appearance.uv,alphaSurfaceOpacity));
       const span=appearance.spans.at(-1);
-      if(!road&&!terrain&&!decalLayers&&!surfaceDecalBlend&&!propLayers&&!staticLayers&&!room&&span&&!span.road&&!span.terrain&&!span.decalLayers&&!span.surfaceDecalBlend&&!span.propLayers&&!span.staticLayers&&!span.room&&span.texture===texture&&span.decalTintMask===decalTintMask&&span.surfacePalette===surfacePalette&&span.bump===bump&&span.bumpStrength===bumpStrength&&span.ground===ground&&span.cutout===cutout&&span.overlay===overlay&&span.frontOnlyDecal===frontOnlyDecal&&Boolean(span.singleSided)===singleSided&&span.groundBlend===groundBlend&&span.vertexOpacity===vertexOpacity&&span.noDecalColor===noDecalColor&&span.fallback===fallback){
+      if(!road&&!terrain&&!decalLayers&&!surfaceDecalBlend&&!propLayers&&!instancePalette&&!staticLayers&&!room&&span&&!span.road&&!span.terrain&&!span.decalLayers&&!span.surfaceDecalBlend&&!span.propLayers&&!span.instancePalette&&!span.staticLayers&&!span.room&&span.texture===texture&&span.decalTintMask===decalTintMask&&span.surfacePalette===surfacePalette&&span.surfacePaletteMaskScale===dirtPalette?.scale&&span.surfacePaletteBackBlend===dirtPalette?.backBlend&&!span.surfacePaletteAlternate&&!surfacePaletteAlternate&&span.pairedSignBacking===pairedSignBacking&&span.bump===bump&&span.bumpStrength===bumpStrength&&span.ground===ground&&span.cutout===cutout&&span.overlay===overlay&&span.frontOnlyDecal===frontOnlyDecal&&Boolean(span.singleSided)===singleSided&&span.groundBlend===groundBlend&&span.vertexOpacity===vertexOpacity&&span.noDecalColor===noDecalColor&&span.fallback===fallback){
         span.count+=indices.length-first;
         if(textureBounds&&span.textureBounds)for(let axis=0;axis<3;axis++){
           span.textureBounds[axis]=Math.min(span.textureBounds[axis],textureBounds[axis]);
           span.textureBounds[axis+3]=Math.max(span.textureBounds[axis+3],textureBounds[axis+3]);
         }
-      }else appearance.spans.push({first,count:indices.length-first,texture,bump,bumpStrength,ground,cutout,overlay,frontOnlyDecal,singleSided:singleSided||undefined,groundBlend,vertexOpacity,noDecalColor,fallback,textureBounds,road,terrain,decalLayers,retroBlend:decalLayers?two?.retroBlend:undefined,decalTintMasks,decalTintMask,surfacePalette,surfaceDecalBlend,propLayers,staticLayers,room});
+      }else appearance.spans.push({first,count:indices.length-first,texture,bump,bumpStrength,ground,cutout,overlay,frontOnlyDecal,singleSided:singleSided||undefined,groundBlend,vertexOpacity,noDecalColor,fallback,textureBounds,road,terrain,decalLayers,retroBlend:decalLayers?two?.retroBlend:undefined,retroPrimaryUV0:decalLayers?two?.retroPrimaryUV0:undefined,decalTintMasks,decalTintMask,surfacePalette,surfacePaletteMaskScale:dirtPalette?.scale,surfacePaletteBackBlend:dirtPalette?.backBlend,surfacePaletteAlternate,instancePalette,pairedSignBacking,surfaceDecalBlend,propLayers,staticLayers,room});
     }
 
   }
 
+}
+
+function opposingSurfaceFaces(vertices:number[],indices:number[],first:number,base:number,uv:number[],opacity:Uint8Array){
+  const count=indices.length-first;
+  if(!count||count%6!==0)return false;
+  const corners=Array.from(opacity,(alpha,offset)=>{
+    const index=base+offset, position=index*4, texel=index*2;
+    return `${vertices[position]},${vertices[position+1]},${vertices[position+2]},${uv[texel]},${uv[texel+1]},${alpha}`;
+  });
+  const pairs=new Map<string,number>();
+  for(let index=first;index<indices.length;index+=3){
+    const a=corners[indices[index]-base],b=corners[indices[index+1]-base],c=corners[indices[index+2]-base];
+    if(a===undefined||b===undefined||c===undefined||a===b||b===c||a===c)return false;
+    const key=[a,b,c].sort().join("|");
+    const winding=Number(a>b)+Number(a>c)+Number(b>c);
+    const side=winding%2===0?1:-1;
+    const previous=pairs.get(key);
+    if(previous===undefined)pairs.set(key,side);
+    else if(previous===-side)pairs.set(key,0);
+    else return false;
+  }
+  return pairs.size*6===count;
+}
+
+function appendRuntimeSign(gpu:DataView,vertex:number,index:number,placement:Placement,origin:Vec3,material:number,
+  vertices:number[],indices:number[],appearance:AppearanceBuilder,font:StreetSignFont){
+  const corners:number[]=[],triangles:number[]=[];
+  appendGeometry(gpu,vertex,index,material,placement,origin,corners,triangles);
+  if(corners.length!==16||triangles.length!==6)return;
+  const uv=materialUVCoordinates(gpu,vertex,4,0x0c);
+  if(!uv)return;
+  const u=[uv[0],uv[2],uv[4],uv[6]],v=[uv[1],uv[3],uv[5],uv[7]];
+  const quads=streetSignQuads(font,placement.signLabel!,[Math.min(...u),Math.min(...v),Math.max(...u),Math.max(...v)]);
+  if(!quads)return;
+  const [a,b,c]=triangles;
+  const ux=u[b]-u[a],uy=u[c]-u[a],vx=v[b]-v[a],vy=v[c]-v[a];
+  const determinant=ux*vy-uy*vx;
+  if(Math.abs(determinant)<1e-6)return;
+  const point=(s:number,t:number)=>{
+    const tx=((s-u[a])*vy-(t-v[a])*uy)/determinant;
+    const ty=((t-v[a])*ux-(s-u[a])*vx)/determinant;
+    return [0,1,2].map(axis=>{
+      const start=corners[4*a+axis];
+      return start+tx*(corners[4*b+axis]-start)+ty*(corners[4*c+axis]-start);
+    });
+  };
+  const fourth=[0,1,2,3].find(i=>i!==a&&i!==b&&i!==c);
+  if(fourth===undefined||point(u[fourth],v[fourth]).some((value,lane)=>Math.abs(value-corners[fourth*4+lane])>.002))return;
+  const first=indices.length,base=vertices.length/4;
+  const {rgba}=placement.signLabel!;
+  if((rgba>>>24)!==255)return;
+  // The native layout writes normalized RGB directly to the linear color
+  // target. Encode it for the viewer's sRGB vertex palette attribute.
+  const color=[0,8,16].map(shift=>{
+    const linear=(rgba>>>shift&255)/255;
+    return 255*(linear<=.0031308?linear*12.92:1.055*linear**(1/2.4)-.055);
+  });
+  color.push(255);
+  const colors=new Uint8Array(quads.length*16);
+  for(const [i,{panel:[left,top,right,bottom],atlas:[x0,y0,x1,y1]}] of quads.entries()){
+    const at=base+i*4;
+    vertices.push(...point(left,top),material,...point(right,top),material,
+      ...point(right,bottom),material,...point(left,bottom),material);
+    appearance.uv.push(x0,y0,x1,y0,x1,y1,x0,y1);
+    if(determinant>0)indices.push(at,at+1,at+2,at,at+2,at+3);
+    else indices.push(at,at+2,at+1,at,at+3,at+2);
+    for(let corner=0;corner<4;corner++)colors.set(color,i*16+corner*4);
+  }
+  (appearance.terrainColors??=[]).push({first:base,values:colors});
+  appearance.spans.push({first,count:indices.length-first,texture:signGlyphPrefix+font.texture,
+    overlay:true,frontOnlyDecal:true,surfacePalette:true});
 }
 
 function roadControlOrigin(vertices:number[],base:number,count:number,origin:Vec3,uv:number[],uvStart:number){
@@ -2561,10 +2834,9 @@ function readSurfaceDecalBlend(data:DataView,gpu:DataView,binding:number,vertex:
     [0x6c,0x70,0x74,0x7c,0x84,0x8c,0x94,0x9c,0xc0,0xc4,0x114,0x118].some(at=>f(at)!==0))return;
   // Both packed masks are the verified constant 4×4 texture. This effect
   // multiplies palette strength by one minus mask alpha, which is zero here.
-  const opaqueMask="0x59932052cc65cbee";
-  if([0x3c4af3d4,0xfa0446c7].some(hash=>reflectedColorBinding(data,binding,hash)!==opaqueMask))return;
+  if([layerOneMaterialBBindingHash,layerTwoMaterialBBindingHash].some(hash=>reflectedColorBinding(data,binding,hash)!==opaqueMaterialBTexture))return;
   const reciprocal=1/Math.max(.001,f(0x80)**2);
-  const control=reflectedColorBinding(data,binding,0x38ebcdb3),dirt=reflectedColorBinding(data,binding,0x7485dafb);
+  const control=reflectedColorBinding(data,binding,layerControlBindingHash),dirt=reflectedColorBinding(data,binding,dirtBindingHash);
   const coordinates=materialUVCoordinates(gpu,vertex,count,0x10),color=packedVertexColor(gpu,vertex,count,0x30);
   if(!control||!dirt||!coordinates||color===undefined||!Number.isFinite(reciprocal))return;
   const weights=new Uint8Array(gpu.buffer,gpu.byteOffset+color,4*count).slice();
@@ -2586,7 +2858,7 @@ function standardDecalTint(data:DataView,gpu:DataView,group:number,binding:numbe
   const constants=systemReference(data,buffers,0x98);
   // The basic deferred decal uses mask alpha directly at these settings.
   if(constants<0||data.getFloat32(constants+0x90,true)!==1||data.getFloat32(constants+0x94,true)!==0)return;
-  const mask=reflectedColorBinding(data,binding,0x739e3d0d);
+  const mask=reflectedColorBinding(data,binding,materialBBindingHash);
   const colors=mask&&vertexPaletteColors(data,gpu,group,binding,vertex,count,selector);
   if(!mask||!colors)return;
   (appearance.terrainColors??=[]).push({first:base,values:colors});
@@ -2599,8 +2871,8 @@ function terrainDecalTint(data:DataView,gpu:DataView,group:number,binding:number
   const constants=buffers<0?-1:systemReference(data,buffers,0x128);
   if(constants<0||data.getFloat32(constants+0x34,true)!==1||data.getFloat32(constants+0x6c,true)!==1||
     weights.some((value,i)=>i%4===1&&value!==0))return;
-  const key=reflectedColorBinding(data,binding,0x2c8d7182);
-  const mask0=reflectedColorBinding(data,binding,0x3c4af3d4),mask1=reflectedColorBinding(data,binding,0xfa0446c7);
+  const key=reflectedColorBinding(data,binding,tintPaletteBindingHash);
+  const mask0=reflectedColorBinding(data,binding,layerOneMaterialBBindingHash),mask1=reflectedColorBinding(data,binding,layerTwoMaterialBBindingHash);
   const palette=key&&localTintPalette(data,gpu,group,key);
   const color=packedVertexColor(gpu,vertex,count,4);
   if(!palette||palette.length<256*4||!mask0||!mask1||color===undefined)return;
@@ -2616,7 +2888,7 @@ function terrainDecalTint(data:DataView,gpu:DataView,group:number,binding:number
 }
 
 function vertexPaletteColors(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,selector?:number){
-  const key=reflectedColorBinding(data,binding,0x2c8d7182);
+  const key=reflectedColorBinding(data,binding,tintPaletteBindingHash);
   const color=packedVertexColor(gpu,vertex,count,4);
   const palette=key&&localTintPalette(data,gpu,group,key);
   if(!palette||color===undefined)return;
@@ -2635,25 +2907,73 @@ function vertexPaletteColors(data:DataView,gpu:DataView,group:number,binding:num
   return values;
 }
 
-function readDirtPalette(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,
-  base:number,appearance:AppearanceBuilder,tintSelector:number|undefined,cloth:boolean):string|true|undefined{
+function readInstanceSurfacePalette(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,
+  count:number,base:number,appearance:AppearanceBuilder):SurfaceInstancePalette|undefined{
+  const paletteKey=reflectedColorBinding(data,binding,tintPaletteBindingHash);
+  const palette=paletteKey&&(appearance.spans.find(span=>span.instancePalette?.paletteKey===paletteKey)?.instancePalette?.palette
+    ??localTintPalette(data,gpu,group,paletteKey)?.slice());
+  const indices=colorChannel(gpu,vertex,count,4,2);
+  if(!paletteKey||!palette||!indices)return;
+  const width=palette.length/4,shift=8-(width&7),bankWidth=1<<shift;
+  if(indices.some(index=>index>=bankWidth))return;
+  const values=new Uint8Array(count*4);
+  for(let i=0;i<count;i++)values[i*4+2]=indices[i];
+  (appearance.terrainColors??=[]).push({first:base,values});
+  return {paletteKey,palette};
+}
+
+function readSurfacePalette(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,
+  base:number,appearance:AppearanceBuilder,{tintSelector,propDirtControl,propLayerControl}:Placement,effect:number):
+  {mask:string|true;scale?:number;backBlend?:number;alternate?:[number,number,number,number];instancePalette?:SurfaceInstancePalette}|undefined{
   const table=systemReference(data,binding+8,8);
-  const maskOffset=cloth?0xd8:0xe8;
-  const constants=table<0?-1:systemReference(data,table,maskOffset+8);
-  if(constants<0||data.getFloat32(constants+0x14,true)!==1||data.getFloat32(constants+0x18,true)!==1||
-    data.getFloat32(constants+0x1c,true)!==0)return;
+  const primaryOnly=effect===dualLayerPropEffect,twoSided=effect===twoSidedDirtEffect;
+  const windCloth=effect===windClothEffect;
+  const batched=primaryOnly||windCloth||effect===batchDirtEffect;
+  const pxmGround=effect===pxmGroundDirtEffect;
+  const maskOffset=primaryOnly?0x110:windCloth?0xd0:batched?0xf4:pxmGround?0xf0:effect===clothDirtEffect?0xd8:0xe8;
+  const constants=table<0?-1:systemReference(data,table,pxmGround?0x10c:maskOffset+8);
+  if(constants<0||!batched&&!pxmGround&&(data.getFloat32(constants+0x18,true)!==1||
+    !twoSided&&data.getFloat32(constants+0x1c,true)!==0))return;
+  const backBlend=twoSided?data.getFloat32(constants+0x1c,true):undefined;
+  if(backBlend!==undefined&&(!(backBlend>=0&&backBlend<=1)||
+    data.getFloat32(constants+0x10,true)!==1||data.getFloat32(constants+0x14,true)!==1))return;
+  // Replay UV entry zero using its authored coordinates. Other entries may animate UVs.
+  if(windCloth&&data.getFloat32(constants+0x4c,true)!==0)return;
+  if(primaryOnly){
+    // A partial placement takes the capped secondary gain. The full byte
+    // uses a separate branch and can still blend the secondary texture.
+    if(appearance.placementLayer!=="partial"&&(propLayerControl===undefined||propLayerControl===255))return;
+    if([0x28,0xb0,0xb4,0xb8,0xbc].some(at=>data.getFloat32(constants+at,true)!==0)||
+      [0x34,0x5c,0x110].some(at=>data.getFloat32(constants+at,true)!==1))return;
+  }
   const maskAlpha=data.getFloat32(constants+maskOffset,true);
-  if((maskAlpha!==0&&maskAlpha!==1)||data.getFloat32(constants+maskOffset+4,true)!==0)return;
-  const mask=maskAlpha===1?reflectedColorBinding(data,binding,0x739e3d0d):undefined;
-  if(maskAlpha===1&&!mask)return;
+  const alternateGain=data.getFloat32(constants+maskOffset+4,true);
+  if(!(maskAlpha>=0&&maskAlpha<=1)||!(alternateGain>=0&&alternateGain<=(pxmGround?1:0)))return;
+  const alternate:[number,number,number,number]|undefined=pxmGround&&alternateGain>0&&maskAlpha>.5?
+    [data.getFloat32(constants+0x100,true),data.getFloat32(constants+0x104,true),
+      data.getFloat32(constants+0x108,true),alternateGain]:undefined;
+  if(alternate?.some(value=>!(value>=0&&value<=1)))return;
+  const mask=maskAlpha>0?reflectedColorBinding(data,binding,primaryOnly?layerOneMaterialBBindingHash:materialBBindingHash):undefined;
+  if(maskAlpha>0&&!mask)return;
+  // Palette weighting uses the packed material mask independently of UV1 dirt.
+  const fullTint=maskAlpha===0||mask===opaqueMaterialBTexture;
+  const paletteMask=mask&&!fullTint?materialMaskChainPrefix+mask:true;
+  const scale=paletteMask!==true&&maskAlpha!==1?maskAlpha:undefined;
+  const dirtGain=data.getFloat32(constants+0x14,true);
+  const zeroDirtOnly=!batched&&!fullTint&&dirtGain===0;
+  if(appearance.ordinaryPropLayers&&(zeroDirtOnly||appearance.mixedTintSelectors&&(batched||fullTint))){
+    const palette=readInstanceSurfacePalette(data,gpu,group,binding,vertex,count,base,appearance);
+    return palette?{mask:paletteMask,scale,backBlend,instancePalette:zeroDirtOnly?{...palette,zeroDirtOnly:true}:palette}:undefined;
+  }
+  if(!batched&&!pxmGround&&!fullTint&&dirtGain!==1&&!(dirtGain===0&&propDirtControl===0))return;
   const values=vertexPaletteColors(data,gpu,group,binding,vertex,count,tintSelector??0);
   if(!values||values.some((value,i)=>i%4===3&&value!==255)||!values.some(value=>value!==255))return;
   (appearance.terrainColors??=[]).push({first:base,values});
-  return mask?materialMaskChainPrefix+mask:true;
+  return {mask:paletteMask,scale,backBlend,alternate};
 }
 
 function propDecalPaletteIsOpaque(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number){
-  const key=reflectedColorBinding(data,binding,0x2c8d7182);
+  const key=reflectedColorBinding(data,binding,tintPaletteBindingHash);
   const palette=key&&localTintPalette(data,gpu,group,key);
   const color=packedVertexColor(gpu,vertex,count,4);
   if(!palette||color===undefined)return false;
@@ -2709,10 +3029,10 @@ function readRoomMaterial(data:DataView,gpu:DataView,group:number,binding:number
     [0x18,0x1c,0x3c,0x5c,0x74,0x78,0x90,0x98,0xec].some(at=>f(at)!==1)||
     [0x50,0x94,0x9c,0x100,0x170,0x184,0x220,0x270].some(at=>f(at)!==0)||
     f(0x208)!==24||f(0x20c)!==24||
-    reflectedColorBinding(data,binding,0x7485dafb)!=="0x2acfdd44be10c24c")return room;
-  const diffuse0=reflectedColorBinding(data,binding,0x346394ea),diffuse1=reflectedColorBinding(data,binding,0x7d4f12e2);
-  const b0=reflectedColorBinding(data,binding,0x3c4af3d4),a0=reflectedColorBinding(data,binding,0x2bb2ede8);
-  const a1=reflectedColorBinding(data,binding,0x4d56d7fe),paletteKey=reflectedColorBinding(data,binding,0x2c8d7182);
+    reflectedColorBinding(data,binding,dirtBindingHash)!=="0x2acfdd44be10c24c")return room;
+  const diffuse0=reflectedColorBinding(data,binding,layerOneDiffuseBindingHash),diffuse1=reflectedColorBinding(data,binding,layerTwoDiffuseBindingHash);
+  const b0=reflectedColorBinding(data,binding,layerOneMaterialBBindingHash),a0=reflectedColorBinding(data,binding,layerOneMaterialABindingHash);
+  const a1=reflectedColorBinding(data,binding,layerTwoMaterialABindingHash),paletteKey=reflectedColorBinding(data,binding,tintPaletteBindingHash);
   const palette=paletteKey&&localTintPalette(data,gpu,group,paletteKey);
   const color0=packedVertexColor(gpu,vertex,count,4),color1=packedVertexColor(gpu,vertex,count,0x30);
   if(!diffuse0||!diffuse1||!b0||!a0||!a1||!palette||color0===undefined||color1===undefined)return room;
@@ -2734,7 +3054,7 @@ function readRoomMaterial(data:DataView,gpu:DataView,group:number,binding:number
 
 function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,
   base:number,appearance:AppearanceBuilder,{tintSelector,propLayerControl,propDirtControl,scale}:Placement,
-  staticParallax:boolean,layeredPavement:boolean){
+  staticParallax:boolean,layeredPavement:boolean,layeredGround:boolean){
   const table=systemReference(data,binding+8,8),constants=table<0?-1:systemReference(data,table,0x11c);
   if(constants<0)return;
   const f=(offset:number)=>data.getFloat32(constants+offset,true);
@@ -2743,10 +3063,16 @@ function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:nu
   if(!sharedWorldUV&&(tintSelector===undefined||propLayerControl===undefined))return;
   // Both permutations select palette A and use control blue. The static PXM
   // permutation reverses the layer UV selectors and has a different CB layout.
-  if(layeredPavement){
-    if(!sharedWorldUV||[0x10,0xa8,0x100].some(at=>f(at)!==1)||
-      [0x90,0xa4,0xac,0x114,0x118].some(at=>f(at)!==0)||
-      [0x94,0x98,0x9c].some(at=>!(f(at)>=0&&f(at)<=1)))return;
+  if(layeredGround){
+    // Both layers select the primary palette interpolant. The secondary
+    // texture has its own UV selector, separate from the control texture.
+    if(!sharedWorldUV||
+      [0x10,0x34,0x44,0x50,0x54,0x6c,0x74,0xec].some(at=>f(at)!==1)||
+      [0x94,0x9c,0x100,0x104].some(at=>f(at)!==0)||f(0x98)!==1)return;
+  }else if(layeredPavement){
+    if(!sharedWorldUV||[0xa8,0x100].some(at=>f(at)!==1)||
+      [0xa4,0xac,0x114,0x118].some(at=>f(at)!==0)||
+      [0x10,0x4c,0x90,0x94,0x98,0x9c].some(at=>!(f(at)>=0&&f(at)<=1)))return;
   }else if(staticParallax){
     if(propLayerControl!==255||f(0x50)!==2||
       [0x10,0x14,0x3c,0x4c,0x54,0x58,0x78,0x98,0xa0,0xa8,0x100].some(at=>f(at)!==1)||
@@ -2756,12 +3082,13 @@ function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:nu
     f(0x48)!==1&&(!wall||f(0x48)!==2))return;
   const weightPower=f(staticParallax||layeredPavement?0xa0:0x90);
   if(!Number.isFinite(weightPower)||weightPower<=0)return;
-  const diffuse0=reflectedColorBinding(data,binding,0x346394ea),diffuse1=reflectedColorBinding(data,binding,0x7d4f12e2);
-  const mask0=reflectedColorBinding(data,binding,0x3c4af3d4),mask1=reflectedColorBinding(data,binding,0xfa0446c7);
-  const control=reflectedColorBinding(data,binding,0x38ebcdb3),paletteKey=reflectedColorBinding(data,binding,0x2c8d7182);
+  const diffuse0=reflectedColorBinding(data,binding,layerOneDiffuseBindingHash),diffuse1=reflectedColorBinding(data,binding,layerTwoDiffuseBindingHash);
+  const mask0=reflectedColorBinding(data,binding,layerOneMaterialBBindingHash),mask1=reflectedColorBinding(data,binding,layerTwoMaterialBBindingHash);
+  const control=reflectedColorBinding(data,binding,layerControlBindingHash),paletteKey=reflectedColorBinding(data,binding,tintPaletteBindingHash);
   if(!diffuse0||!diffuse1||!mask0||!mask1||!control||!paletteKey)return;
   const layer0UV=uvStream(gpu,vertex,count,staticParallax||sharedWorldUV?0x0c:0x10);
-  const layer1UV=materialUVCoordinates(gpu,vertex,count,staticParallax||wall&&f(0x48)===2?0x10:0x0c);
+  const layer1UV=materialUVCoordinates(gpu,vertex,count,
+    staticParallax||layeredGround&&f(0x48)!==1||wall&&!layeredGround&&f(0x48)===2?0x10:0x0c);
   const color0=packedVertexColor(gpu,vertex,count,4),color1=packedVertexColor(gpu,vertex,count,0x30);
   const palette=localTintPalette(data,gpu,group,paletteKey);
   if(!layer0UV||!layer1UV||color0===undefined||color1===undefined||!palette)return;
@@ -2775,9 +3102,16 @@ function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:nu
     values[i*4+3]=gpu.getUint8(color1+i*4);
   }
   (appearance.terrainColors??=[]).push({first:base,values});
+  if(layeredGround){
+    (appearance.terrainTintUV??=[]).push({first:base,values:layer1UV});
+    // The source draw-table gain is unavailable in the forward renderer.
+    const layers:StaticMaterialLayers={textures:[diffuse0,diffuse1,mask0,mask1,control],
+      weightPower,layerControl:1,controlUV0:true};
+    return {layers,uv:layer0UV};
+  }
   const detailTable=scale[0]===scale[1]?systemReference(data,table,0x1ec):-1;
   const layerDetail=(at:number):StaticLayerDetail|undefined=>{
-    if(detailTable!==constants||reflectedColorBinding(data,binding,0x0cd27763))return;
+    if(detailTable!==constants||reflectedColorBinding(data,binding,detailArrayBindingHash))return;
     // Identity slice remap with either a fixed slice or a slice from MaterialB.
     const phase=f(at+16);
     const slice=f(at+12);
@@ -2798,7 +3132,7 @@ function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:nu
   const overlayDirt=!staticParallax&&propDirtControl===255&&
     [0xa4,0xcc,0xd0,0xd4,0xd8].every(at=>f(at)===0)&&[0xa0,0xac,0xb0,0xc4,0xc8].every(at=>f(at)===1);
   const dirtKey=directDirtUV||overlayDirt
-    ?reflectedColorBinding(data,binding,0x7485dafb):null;
+    ?reflectedColorBinding(data,binding,dirtBindingHash):null;
   const opacity=dirtKey?Uint8Array.from({length:count},(_,i)=>gpu.getUint8(color0+i*4+3)):undefined;
   const dirt=opacity?.some(value=>value>0)?dirtKey??undefined:undefined;
   if(dirt&&opacity)(appearance.decalOpacity??=[]).push({first:base,values:opacity});
@@ -2811,10 +3145,43 @@ function staticMaterialLayers(data:DataView,gpu:DataView,group:number,binding:nu
   const parallax=layeredPavement&&march.every(value=>value>0&&value<=.1)?march:undefined;
   const layers:StaticMaterialLayers={textures:[diffuse0,diffuse1,mask0,mask1,control],weightPower,
     layerControl:(propLayerControl??255)/255,
-    controlChannels:layeredPavement?[f(0x94),f(0x98),f(0x9c)]:undefined,
+    controlChannels:layeredPavement?[f(0x90),f(0x94),f(0x98),f(0x9c)]:undefined,
+    paletteStrength:layeredPavement?[f(0x10),f(0x4c)]:undefined,
     detail:detail0||detail1?[detail0,detail1]:undefined,
     normals:normal0&&normal1?[normal0,normal1]:undefined,parallax,dirt,dirtDirect:dirtDirect?true:undefined};
   return {layers,uv:layer0UV};
+}
+
+function readLayeredRoadSign(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,
+  base:number,appearance:AppearanceBuilder,{tintSelector,propLayerControl}:Placement){
+  if(appearance.mixedTintSelectors||propLayerControl!==255&&appearance.placementLayer!=="full")return;
+  const table=systemReference(data,binding+8,8),constants=systemReference(data,table,0x10c);
+  if(constants<0)return;
+  const f=(offset:number)=>data.getFloat32(constants+offset,true);
+  const primaryUV=f(0x30),weightPower=f(0xb0);
+  const secondaryScale=[f(0x68),f(0x6c)] as const;
+  // Both layers use the primary palette. Control and layer 1 share UV1
+  // before only the secondary diffuse and mask receive their tiling scale.
+  if(primaryUV!==1&&primaryUV!==2||f(0x64)!==2||f(0x8c)!==2||f(0x100)!==2||
+    [0x10,0x14,0x18,0x1c].some(at=>f(at)!==-1)||
+    [0x2c,0x60,0xa0,0xa4,0xa8,0xb4,0xb8,0x108].some(at=>f(at)!==1)||
+    [0x34,0x74,0xac,0xbc,0x104].some(at=>f(at)!==0)||
+    ![weightPower,...secondaryScale].every(value=>value>0&&value<=64))return;
+  const diffuse0=reflectedColorBinding(data,binding,layerOneDiffuseBindingHash),diffuse1=reflectedColorBinding(data,binding,layerTwoDiffuseBindingHash);
+  const mask0=reflectedColorBinding(data,binding,layerOneMaterialBBindingHash),mask1=reflectedColorBinding(data,binding,layerTwoMaterialBBindingHash);
+  const control=reflectedColorBinding(data,binding,layerControlBindingHash);
+  if(!diffuse0||!diffuse1||!control||mask0!==opaqueMaterialBTexture||mask1!==mask0)return;
+  const uv=uvStream(gpu,vertex,count,primaryUV===1?0x0c:0x10);
+  const secondary=materialUVCoordinates(gpu,vertex,count,0x10);
+  const colors=vertexPaletteColors(data,gpu,group,binding,vertex,count,tintSelector??0);
+  const weights=colorChannel(gpu,vertex,count,0x30,0);
+  if(!uv||!secondary||!colors||!weights)return;
+  for(let i=0;i<count;i++)colors[i*4+3]=weights[i];
+  (appearance.terrainColors??=[]).push({first:base,values:colors});
+  (appearance.terrainTintUV??=[]).push({first:base,values:secondary});
+  const layers:StaticMaterialLayers={textures:[diffuse0,diffuse1,mask0,mask1,control],
+    weightPower,layerControl:1,controlChannels:[1,1,1,0],secondaryScale};
+  return {layers,uv};
 }
 
 function propMaterialLayers(data:DataView,gpu:DataView,group:number,binding:number,vertex:number,count:number,
@@ -2835,7 +3202,7 @@ function propMaterialLayers(data:DataView,gpu:DataView,group:number,binding:numb
       [0x4c,0x88].some(at=>f(at)!==Math.fround(.15))||
       [0x190,0x1e0].some(at=>data.getUint32(constants+at,true)!==0xe4e4e4e4||
         data.getUint32(constants+at+4,true)!==0xffaa5500||data.getUint32(constants+at+8,true)!==0)||
-      reflectedColorBinding(data,binding,0x0cd27763))return;
+      reflectedColorBinding(data,binding,detailArrayBindingHash))return;
   }else if(decal){
     if([0x20,0xb4,0xbc,0x100].some(at=>f(at)!==0)||
       [0x2c,0x30,0x50,0x5c,0x60,0x64,0x68,0x80,0x84,0xc0,0xe8,0xfc].some(at=>f(at)!==1)||
@@ -2844,20 +3211,20 @@ function propMaterialLayers(data:DataView,gpu:DataView,group:number,binding:numb
     [0x34,0x38,0x5c,0x68,0x6c,0x70,0x74,0x8c,0x90,0xb4,0xb8,0x110].some(at=>f(at)!==1))return;
   const weightPower=f(decal?0xa0:0xb0);
   if(!Number.isFinite(weightPower)||weightPower<=0)return;
-  const diffuse0=reflectedColorBinding(data,binding,0x346394ea),diffuse1=reflectedColorBinding(data,binding,0x7d4f12e2);
-  const material0=reflectedColorBinding(data,binding,0x3c4af3d4),material1=reflectedColorBinding(data,binding,0xfa0446c7);
-  const control=reflectedColorBinding(data,binding,0x38ebcdb3),paletteKey=reflectedColorBinding(data,binding,0x2c8d7182);
+  const diffuse0=reflectedColorBinding(data,binding,layerOneDiffuseBindingHash),diffuse1=reflectedColorBinding(data,binding,layerTwoDiffuseBindingHash);
+  const material0=reflectedColorBinding(data,binding,layerOneMaterialBBindingHash),material1=reflectedColorBinding(data,binding,layerTwoMaterialBBindingHash);
+  const control=reflectedColorBinding(data,binding,layerControlBindingHash),paletteKey=reflectedColorBinding(data,binding,tintPaletteBindingHash);
   if(!diffuse0||!diffuse1||!material0||!material1||!control||!paletteKey)return;
   let height:PropMaterialLayers["parallax"];
   if(parallax){
-    const a=reflectedColorBinding(data,binding,0x2bb2ede8),b=reflectedColorBinding(data,binding,0x4d56d7fe);
+    const a=reflectedColorBinding(data,binding,layerOneMaterialABindingHash),b=reflectedColorBinding(data,binding,layerTwoMaterialABindingHash);
     const march=[f(0x40),f(0x44),f(0x7c),f(0x80)] as const;
     // All mip texels of these two masks stay inside their respective slice bins.
     if(!a||!b||material0!=="0x14a959e0938b6804"||material1!=="0x2dd09139d0156f0b"||
       !march.every(Number.isFinite)||march[0]<=0||march[2]<=0)return;
     height={materials:[a,b],march};
   }
-  const dirt=decal||parallax?reflectedColorBinding(data,binding,0x7485dafb):undefined;
+  const dirt=decal||parallax?reflectedColorBinding(data,binding,dirtBindingHash):undefined;
   const dirtUV=dirt?materialUVCoordinates(gpu,vertex,count,0x10):undefined;
   if((decal||parallax)&&(!dirt||!dirtUV))return;
   const color0=packedVertexColor(gpu,vertex,count,4),color1=packedVertexColor(gpu,vertex,count,0x30);

@@ -1,3 +1,4 @@
+import { surfacePaletteMode } from "./street-material-constants";
 import {StreetOcclusionReview} from "./street-occlusion-review";
 import {beginOpaque,chooseOpaque,endOpaque,registerOpaqueMesh} from "./street-opaque-program";
 import {rendererReview} from "./street-renderer-review";
@@ -75,9 +76,10 @@ function propLayerTextures(layers:PropMaterialLayers){
   return ids;
 }
 function staticLayerTextures(layers:StaticMaterialLayers){
-  const diffuse=layers.normals?authoredDiffusePrefix:terrainTexturePrefix+"diffuse:";
+  const diffuse=layers.normals||layers.secondaryScale?authoredDiffusePrefix:terrainTexturePrefix+"diffuse:";
+  const [, ,mask0,mask1]=layers.textures;
   return layers.textures.map((key,index)=>(index<2?diffuse:
-    index===4?terrainTexturePrefix+"layer-control:":materialMaskChainPrefix)+key);
+    index===4&&key!==mask0&&key!==mask1?terrainTexturePrefix+"layer-control:":materialMaskChainPrefix)+key);
 }
 const roomGlassRoles=["diffuse","room-glass","material-mask","material-mask","material-mask"] as const;
 function roomGlassTextures(glass:NonNullable<StreetRoomMaterial["glass"]>){
@@ -915,6 +917,8 @@ export class StreetWorld {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D,texture);
     const roadHeight=id.startsWith(roadHeightPrefix);
+    const roadSurfaceTint=id.startsWith(roadSurfaceTintPrefix);
+    const colorFormat=id.startsWith(roadTintPrefix)||roadSurfaceTint?gl.SRGB8_ALPHA8:gl.RGBA8;
     if(roadHeight){
       const channels=roadHeightBlueAlpha(image.rgba);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
@@ -926,23 +930,21 @@ export class StreetWorld {
       gl.pixelStorei(gl.UNPACK_ALIGNMENT,1);
       gl.texImage2D(gl.TEXTURE_2D,0,gl.R8,image.width,image.height,0,gl.RED,gl.UNSIGNED_BYTE,red);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT,4);
-    }else{
-      const srgb=id.startsWith(roadTintPrefix)||id.startsWith(roadSurfaceTintPrefix);
-      gl.texImage2D(gl.TEXTURE_2D,0,srgb?gl.SRGB8_ALPHA8:gl.RGBA8,image.width,image.height,0,gl.RGBA,gl.UNSIGNED_BYTE,image.rgba);
-    }
+    }else gl.texImage2D(gl.TEXTURE_2D,0,colorFormat,image.width,image.height,0,gl.RGBA,gl.UNSIGNED_BYTE,image.rgba);
     if(canopy||id.startsWith(roadTintPrefix)||id.startsWith(roadControlPrefix)){
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     }
     const refinedRoadColor=close&&roadColor;
-    const authoredMips=ground||refinedRoadColor||id.startsWith(nativeCanopyAtlasPrefix)?image.authoredMips:undefined;
-    if(ground&&authoredMips?.length)gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,authoredMips.length);
+    const authoredMips=ground||refinedRoadColor||roadSurfaceTint||id.startsWith(nativeCanopyAtlasPrefix)?image.authoredMips:undefined;
+    if((ground||roadSurfaceTint)&&authoredMips?.length)
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,authoredMips.length);
     if(id.startsWith(nativeCanopyAtlasPrefix))
       gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,authoredMips?.length??
         Math.max(0,Math.floor(Math.log2(Math.min(image.width,image.height)/16))));
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,image.baseLevelOnly?gl.LINEAR:gl.LINEAR_MIPMAP_LINEAR);
     if(image.baseLevelOnly)gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAX_LEVEL,0);
-    if(!roadHeight&&!image.baseLevelOnly&&this.anisotropy)
+    if(!roadHeight&&!roadSurfaceTint&&!image.baseLevelOnly&&this.anisotropy)
       gl.texParameterf(gl.TEXTURE_2D,this.anisotropy.TEXTURE_MAX_ANISOTROPY_EXT,
         ground&&!roadColor?this.groundAnisotropy:Math.min(4,this.groundAnisotropy));
     if(image.alphaCutout)this.alphaTextures.add(texture);
@@ -952,7 +954,7 @@ export class StreetWorld {
       // tail below the last authored level for that approximation.
       if(refinedRoadColor&&Math.max(tail.width,tail.height)>1)gl.generateMipmap(gl.TEXTURE_2D);
       for(const [index,mip] of authoredMips.entries())
-        gl.texImage2D(gl.TEXTURE_2D,index+1,gl.RGBA8,mip.width,mip.height,0,gl.RGBA,gl.UNSIGNED_BYTE,mip.rgba);
+        gl.texImage2D(gl.TEXTURE_2D,index+1,colorFormat,mip.width,mip.height,0,gl.RGBA,gl.UNSIGNED_BYTE,mip.rgba);
     }else if(!image.baseLevelOnly)gl.generateMipmap(gl.TEXTURE_2D);
     textures.set(key,texture);
     if(!close&&!canopy&&!ground&&image.detailNormal?.length===image.width*image.height*2){
@@ -1019,9 +1021,15 @@ export class StreetWorld {
       return Math.max(dx*dy,dx*dz,dy*dz)/(25+range)*(visible?1+.9/(1+range/1024):.12);
     }
     const roadDetailVisible=streetFrustum(camera,1,roadDetailFarDepth);
+    const roadNormalVisible=streetFrustum(camera,1,32);
     for(const {road,bounds} of groundRoads){
       if(road.detail&&roadDetailVisible(bounds))
         layeredMaterials.push({ids:[...new Set(road.detail.textures)],score:materialScore(bounds,streetDistance(bounds,camera.eye),true)});
+      if(road.normals&&roadNormalVisible(bounds)){
+        this.terrainDetailSupported??=this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS)>terrainDetailUnits[3];
+        if(this.terrainDetailSupported)
+          layeredMaterials.push({ids:[...new Set(road.normals.textures)],score:materialScore(bounds,streetDistance(bounds,camera.eye),true)});
+      }
     }
     for(const {mesh,bounds,spanBounds} of visible){
       if(mesh.kind==="skyline"){
@@ -1048,7 +1056,7 @@ export class StreetWorld {
         continue;
       }
       if(mesh.kind==="terrain"){
-        for(const [i,{texture,ground,overlay,fallback,decalTintMasks,staticLayers}] of (mesh.appearance?.spans??[]).entries()){
+        for(const [i,{texture,ground,overlay,fallback,decalTintMasks,staticLayers,surfacePalette}] of (mesh.appearance?.spans??[]).entries()){
           const extent=spanBounds?.[i]??bounds;
           const range=streetDistance(extent,camera.eye);
           if(staticLayers&&range<24**2&&onScreen(extent,streetHorizon)){
@@ -1059,6 +1067,8 @@ export class StreetWorld {
           }
           if(decalTintMasks&&onScreen(extent,streetHorizon))
             layeredMaterials.push({ids:decalTintMasks,score:materialScore(extent,range,true)});
+          if(typeof surfacePalette==="string"&&range<24**2&&onScreen(extent,streetHorizon))
+            layeredMaterials.push({ids:[surfacePalette],score:materialScore(extent,range,true)});
           if(!mesh.replaces||!texture||ground!==false||overlay||!fallback||texture.startsWith(dynamicTerrainPrefix)||
             this.textures.get(texture)===null)continue;
           if(range<24**2&&range<(nearbyGroundMaterials.get(texture)??Infinity)&&onScreen(extent,streetHorizon))
@@ -1344,7 +1354,7 @@ export class StreetWorld {
       for(const {road} of groundRoads){
         const keys=new Set(road.textures);
         const heights=road.height?.textures??[];
-        if(!road.localVertexColor||!heights.some(id=>id&&textures.get(id)===null))
+        if(!road.localVertexColor&&!road.height?.optional||!heights.some(id=>id&&textures.get(id)===null))
           for(const height of heights)if(height)keys.add(height);
         if(road.tint&&(!road.tint.surfaceAlpha||textures.get(road.tint.texture)!==null))keys.add(road.tint.texture);
         const mask=road.textures[0];
@@ -1578,14 +1588,14 @@ export class StreetWorld {
         gl.vertexAttribPointer(attribute,size,gl.FLOAT,false,instances.affine?64:36,offset);
         gl.vertexAttribDivisor(attribute,1);
       }
-      const selectors=instances.tintSelectors,controls=instances.propLayerControls;
-      if(!instances.affine&&selectors?.length===instanceCount&&controls?.length===instanceCount){
-        const dirt=instances.propDirtControls;
+      const selectors=instances.tintSelectors,controls=instances.propLayerControls,dirt=instances.propDirtControls;
+      const hasInstancePalette=dirt?.length===instanceCount&&mesh.appearance?.spans.some(span=>span.instancePalette);
+      if(!instances.affine&&selectors?.length===instanceCount&&(controls?.length===instanceCount||hasInstancePalette)){
         propDirtControls=dirt?.length===selectors.length?true:undefined;
         const data=new Uint8Array(selectors.length*3);
         for(let index=0;index<selectors.length;index++){
           data[index*3]=selectors[index];
-          data[index*3+1]=controls[index];
+          data[index*3+1]=controls?.[index]??0;
           data[index*3+2]=dirt?.[index]??0;
         }
         propInstances=gl.createBuffer();
@@ -1598,18 +1608,18 @@ export class StreetWorld {
         propPalettes=new Map();
         gl.activeTexture(gl.TEXTURE7);
         for(const span of mesh.appearance?.spans??[]){
-          const layers=span.propLayers;
-          if(!layers||propPalettes.has(layers.paletteKey))continue;
+          const layer=span.propLayers??span.instancePalette;
+          if(!layer||propPalettes.has(layer.paletteKey))continue;
           const texture=gl.createTexture();
-          const pitch=Math.min(layers.palette.length/4,1024);
-          const height=Math.ceil(layers.palette.length/(4*pitch));
-          const image=height===1?layers.palette:new Uint8Array(pitch*height*4);
-          if(height>1)image.set(layers.palette);
+          const pitch=Math.min(layer.palette.length/4,1024);
+          const height=Math.ceil(layer.palette.length/(4*pitch));
+          const image=height===1?layer.palette:new Uint8Array(pitch*height*4);
+          if(height>1)image.set(layer.palette);
           gl.bindTexture(gl.TEXTURE_2D,texture);
           gl.texImage2D(gl.TEXTURE_2D,0,gl.SRGB8_ALPHA8,pitch,height,0,gl.RGBA,gl.UNSIGNED_BYTE,image);
           gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);
           gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
-          propPalettes.set(layers.paletteKey,texture);
+          propPalettes.set(layer.paletteKey,texture);
           propBytes+=image.byteLength;
         }
         gl.activeTexture(gl.TEXTURE1);
@@ -2255,6 +2265,9 @@ export class StreetWorld {
     const staticLayerDirtUV1=uniform("staticLayerDirtUV1");
     const staticLayerMarch=uniform("staticLayerMarch");
     const staticLayerControlChannels=uniform("staticLayerControlChannels");
+    const staticLayerPaletteStrength=uniform("staticLayerPaletteStrength");
+    const staticLayerSecondaryScale=uniform("staticLayerSecondaryScale");
+    const staticLayerControlUV0=uniform("staticLayerControlUV0");
     const staticLayerNormals=uniform("staticLayerNormals");
     const staticDetailUniforms=[uniform("staticDetail0"),uniform("staticDetail1")];
     const roomState=this.roomTexturesSupported?uniform("roomState"):null;
@@ -2281,9 +2294,9 @@ export class StreetWorld {
       if(parallax)gl.uniform4f(parallaxMarch,...parallax);
     };
     type Overlay={gpu:Resident;first:number;count:number;texture:WebGLTexture;road:boolean;groundOnly:boolean;frontOnly?:boolean;
-      clip?:Float32Array;
-      layers?:[WebGLTexture,WebGLTexture?];retroBlend?:number;tintMasks?:[WebGLTexture,WebGLTexture];ranges?:InstanceRange[];
-      tintMask?:WebGLTexture;fullTint?:true;surfaceBlend?:{control:WebGLTexture;dirt:WebGLTexture;reciprocal:number};
+      clip?:Float32Array;singleSided?:boolean;
+      layers?:[WebGLTexture,WebGLTexture?];retroBlend?:number;retroPrimaryUV0?:true;tintMasks?:[WebGLTexture,WebGLTexture];ranges?:InstanceRange[];
+      tintMask?:WebGLTexture;fullTint?:true;alternateTint?:[number,number,number,number];surfaceBlend?:{control:WebGLTexture;dirt:WebGLTexture;reciprocal:number};
       propMaterial?:ReturnType<typeof readyPropMaterial>};
     const overlays:Overlay[]=[],waterOverlays:Overlay[]=[];
     const water:{gpu:Resident;first:number;count:number;ranges?:InstanceRange[];ocean:boolean;clip?:Float32Array}[]=[];
@@ -2818,11 +2831,14 @@ export class StreetWorld {
             const layers=road.textures.slice(road.vertexOnly?0:1).map(id=>this.closeTextures.get(id)??this.textures.get(id));
             const mask=road.vertexOnly?undefined:this.textures.get(road.textures[0]);
             const heights=road.height?.textures.map(id=>id?this.textures.get(id):null);
-            const authoredLocal=Boolean(road.localVertexColor&&gpu.terrainColors&&(road.vertexOnly||mask)&&heights?.every(Boolean));
-            const projected=road.useProjectedColor&&!authoredLocal;
-            const atlas=projected&&span.fallback?this.groundTextures.get(span.fallback):undefined;
-            const height=road.localVertexColor&&!authoredLocal?undefined:road.height;
+            const authoredInputs=Boolean(gpu.terrainColors&&(road.vertexOnly||mask)&&heights?.every(Boolean));
+            const authoredLocal=Boolean(road.localVertexColor&&authoredInputs);
             const tint=road.tint,tintTexture=tint&&this.textures.get(tint.texture);
+            const authoredTint=Boolean(tint?.vertexScale&&tintTexture&&authoredInputs);
+            const projected=road.useProjectedColor&&!authoredLocal&&!authoredTint;
+            const atlas=projected&&span.fallback?this.groundTextures.get(span.fallback):undefined;
+            const height=road.localVertexColor&&!authoredLocal||road.height?.optional&&!heights?.every(Boolean)?
+              undefined:road.height;
             if(layers.every(layer=>layer)&&(road.vertexOnly||mask||atlas)&&(!projected||atlas)&&
               (!tint||tint.surfaceAlpha||tintTexture)&&(!height||height.textures.every((id,i)=>!id||heights?.[i]))){
               flush();
@@ -2852,7 +2868,10 @@ export class StreetWorld {
                 gl.bindTexture(gl.TEXTURE_2D,tintTexture);
                 gl.uniform4f(uniform("terrainTintScale"),...tint.scale);
                 gl.uniform4f(uniform("terrainTintAmount"),...tint.amount);
-                if(tint.vertexAmount)gl.uniform4f(uniform("roadVertexTintAmount"),...tint.vertexAmount);
+                if(tint.vertexAmount){
+                  gl.uniform4f(uniform("roadVertexTintAmount"),...tint.vertexAmount);
+                  gl.uniform4f(uniform("roadVertexTintScale"),...(tint.vertexScale??[1,1,1,1] as const));
+                }
               }
               const parallax=authoredLocal&&road.parallax;
               const control=parallax&&gpu.normals&&gpu.terrainSecondaryTangents&&chunk.mesh.decalOpacity&&this.textures.get(parallax.texture);
@@ -2878,6 +2897,22 @@ export class StreetWorld {
                 gl.uniform4f(uniform("roadDetailU"),...detail.u);
                 gl.uniform4f(uniform("roadDetailV"),...detail.v);
                 gl.uniform4f(uniform("roadDetailStrength"),...detail.strength);
+                const normal=detail.normalStrength;
+                gl.uniform4f(uniform("roadDetailNormalStrength"),normal?.[0]??0,normal?.[1]??0,normal?.[2]??0,normal?.[3]??0);
+              }
+              if(this.terrainDetailSupported){
+                const normals=height&&road.normals;
+                const maps=normals&&normals.textures.map(id=>this.terrainTextures.get(id));
+                const ready=Boolean(maps&&maps.every(Boolean)&&gpu.terrainTangents);
+                if(ready&&normals&&maps){
+                  // The road can reuse the secondary terrain material samplers.
+                  for(const [lane,map] of maps.entries()){
+                    gl.activeTexture(gl.TEXTURE0+terrainDetailUnits[lane]);
+                    gl.bindTexture(gl.TEXTURE_2D,map!);
+                  }
+                  gl.uniform4f(uniform("roadBaseNormalStrength"),...normals.strength);
+                }
+                gl.uniform1i(uniform("roadHasBaseNormals"),Number(ready));
               }
               gl.activeTexture(gl.TEXTURE1);
               if(atlas){
@@ -2895,7 +2930,8 @@ export class StreetWorld {
               gl.uniform1i(uniform("roadUsesHeight"),height?1:0);
               gl.uniform1i(uniform("roadAuthoredHeight"),height?.authored?1:0);
               gl.uniform1i(uniform("terrainHasTint"),tintTexture&&!tint?.surfaceAlpha?1:0);
-              gl.uniform1i(uniform("roadSurfaceTint"),tintTexture&&tint?.vertexAmount?1:0);
+              gl.uniform1i(uniform("roadSurfaceTint"),tintTexture&&tint?.vertexAmount&&(!tint.vertexScale||authoredTint)?1:0);
+              gl.uniform1i(uniform("roadInverseVertexAlpha"),Number(authoredTint));
               gl.uniform1i(uniform("roadLocalVertexColor"),authoredLocal?1:0);
               gl.uniform1i(uniform("roadHasDetail"),hasDetail?1:0);
               gl.uniform4f(uniform("roadPrimary"),...span.road.primary);
@@ -2989,7 +3025,10 @@ export class StreetWorld {
               if(authored.parallax&&gpu.terrainTangents)gl.uniform4f(staticLayerMarch,...authored.parallax);
               else gl.uniform4f(staticLayerMarch,0,0,0,0);
               gl.uniform1i(staticLayerNormals,Number(readyNormals));
-              gl.uniform3f(staticLayerControlChannels,...(authored.controlChannels??[0,1,0] as const));
+              gl.uniform4f(staticLayerControlChannels,...(authored.controlChannels??[0,0,1,0] as const));
+              gl.uniform2f(staticLayerPaletteStrength,...(authored.paletteStrength??[1,1] as const));
+              gl.uniform2f(staticLayerSecondaryScale,...(authored.secondaryScale??[1,1] as const));
+              gl.uniform1i(staticLayerControlUV0,Number(Boolean(authored.controlUV0)));
               gl.activeTexture(gl.TEXTURE1);
               gl.uniform2f(staticLayerState,1/Math.max(.001,authored.weightPower**2),authored.layerControl);
               draw(span.first,span.count,primary,false,Boolean(span.cutout),Boolean(span.singleSided),readyNormals?false:undefined);
@@ -3026,10 +3065,12 @@ export class StreetWorld {
               (chunk.mesh.kind==="water"?waterOverlays:overlays).push({gpu,first:span.first,count:span.count,texture:primary,
                 clip:interiorClip,
                 road:chunk.mesh.kind==="road"||Boolean(span.decalLayers),groundOnly:ground,
-                frontOnly:span.frontOnlyDecal,layers,retroBlend:span.retroBlend,ranges,
+                frontOnly:span.frontOnlyDecal,singleSided:span.singleSided,layers,retroBlend:span.retroBlend,
+                retroPrimaryUV0:span.retroPrimaryUV0,ranges,
                 tintMasks:tintMasks?.[0]&&tintMasks[1]?[tintMasks[0],tintMasks[1]]:undefined,
                 tintMask:span.decalTintMask?this.terrainTextures.get(span.decalTintMask)??undefined:undefined,
                 fullTint:span.surfacePalette===true?true:undefined,
+                alternateTint:span.surfacePaletteAlternate,
                 surfaceBlend:blend&&blendControl&&dirt?{control:blendControl,dirt,reciprocal:blend.reciprocal}:undefined,
                 propMaterial:span.propLayers?.dirt?readyPropMaterial(gpu,span.propLayers):undefined});
             }
@@ -3051,16 +3092,41 @@ export class StreetWorld {
           const bump=this.lightingMaterials&&primary&&gpu.terrainTangents&&span.bump?this.terrainTextures.get(span.bump):undefined;
           const strength=bump?span.bumpStrength:undefined;
           const paletteMask=typeof span.surfacePalette==="string"?this.terrainTextures.get(span.surfacePalette):undefined;
-          if(primary&&gpu.terrainColors&&(span.surfacePalette===true||paletteMask)){
+          const instancePalette=span.instancePalette;
+          const palette=instancePalette&&gpu.propDirtControls&&gpu.propPalettes?.get(instancePalette.paletteKey);
+          if(primary&&gpu.terrainColors&&(span.surfacePalette===true||paletteMask)&&(!instancePalette||palette)){
             flush();
+            const paletteMaskScale=span.surfacePaletteMaskScale;
+            const backBlend=span.surfacePaletteBackBlend;
+            const alternate=span.surfacePaletteAlternate;
+            if(backBlend)gl.uniform1f(uniform("surfacePaletteBackBlend"),backBlend);
+            if(alternate)gl.uniform4f(uniform("surfacePaletteAlternate"),...alternate);
+            if(palette&&instancePalette){
+              gl.activeTexture(gl.TEXTURE7);gl.bindTexture(gl.TEXTURE_2D,palette);
+              gl.activeTexture(gl.TEXTURE1);
+              gl.uniform2f(propState,-instancePalette.palette.length/4,Number(Boolean(instancePalette.zeroDirtOnly)));
+            }
             if(paletteMask){
               gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,paletteMask);
               gl.activeTexture(gl.TEXTURE1);
+              if(paletteMaskScale!==undefined)gl.uniform1f(uniform("surfacePaletteMaskScale"),paletteMaskScale);
             }
             gl.uniform1i(uniform("decalPaletteEnabled"),1);
-            gl.uniform1i(uniform("surfacePaletteMode"),paletteMask?1:2);
+            gl.uniform1i(uniform("surfacePaletteMode"),paletteMask?surfacePaletteMode.mask:surfacePaletteMode.full);
+            // The inset and carrier can quantize to the same window depth.
+            // Preserve their authored order without moving either surface.
+            const bias=span.pairedSignBacking&&!skyline;
+            if(bias){
+              gl.enable(gl.POLYGON_OFFSET_FILL);
+              gl.polygonOffset(0,-2);
+            }
             draw(span.first,span.count,primary,false,alphaMasked,Boolean(span.singleSided),bump,false,strength);
-            gl.uniform1i(uniform("surfacePaletteMode"),0);
+            if(bias)gl.disable(gl.POLYGON_OFFSET_FILL);
+            if(palette)gl.uniform2f(propState,0,0);
+            if(paletteMaskScale!==undefined)gl.uniform1f(uniform("surfacePaletteMaskScale"),1);
+            if(backBlend)gl.uniform1f(uniform("surfacePaletteBackBlend"),0);
+            if(alternate)gl.uniform4f(uniform("surfacePaletteAlternate"),0,0,0,0);
+            gl.uniform1i(uniform("surfacePaletteMode"),surfacePaletteMode.disabled);
             gl.uniform1i(uniform("decalPaletteEnabled"),0);
             continue;
           }
@@ -3144,7 +3210,8 @@ export class StreetWorld {
         gl.stencilMask(0);
         gl.stencilFunc(gl.EQUAL,groundReceiver,groundReceiver);
       }
-      for(const {gpu,first,count,texture,road,groundOnly,frontOnly,layers,retroBlend,tintMasks,tintMask,fullTint,ranges,surfaceBlend,propMaterial,clip} of overlays){
+      for(const {gpu,first,count,texture,road,groundOnly,frontOnly,singleSided,layers,retroBlend,retroPrimaryUV0,tintMasks,tintMask,fullTint,alternateTint,ranges,surfaceBlend,propMaterial,clip} of overlays){
+        cullBackFaces(Boolean(singleSided));
         useInteriorClip(clip);
         if(stencil&&groundStencil!==groundOnly){
           groundStencil=groundOnly;
@@ -3163,26 +3230,30 @@ export class StreetWorld {
         gl.uniform1i(uniform("hasDecalControl"),Number(Boolean(layers?.[1])));
         gl.uniform1i(uniform("frontOnlyDecal"),Number(Boolean(frontOnly)));
         gl.uniform1f(uniform("retroBlend"),retroBlend??0);
+        gl.uniform1i(uniform("retroPrimaryUV0"),Number(Boolean(retroPrimaryUV0)));
         if(tintMasks){
           gl.activeTexture(gl.TEXTURE4);gl.bindTexture(gl.TEXTURE_2D,tintMasks[0]);
           gl.activeTexture(gl.TEXTURE5);gl.bindTexture(gl.TEXTURE_2D,tintMasks[1]);
           gl.activeTexture(gl.TEXTURE1);
         }
         gl.uniform1i(uniform("decalPaletteEnabled"),Number(Boolean(tintMasks||tintMask||fullTint)));
-        if(tintMask||fullTint)gl.uniform1i(uniform("surfacePaletteMode"),fullTint?2:1);
+        if(alternateTint)gl.uniform4f(uniform("surfacePaletteAlternate"),...alternateTint);
+        if(tintMask||fullTint||alternateTint)gl.uniform1i(uniform("surfacePaletteMode"),alternateTint?surfacePaletteMode.constant:fullTint?surfacePaletteMode.full:surfacePaletteMode.mask);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),surfaceBlend.reciprocal);
         gl.uniform1i(instanced,gpu.instanceMode);
         if(propMaterial)bindPropMaterial(propMaterial);
         this.drawTriangles(gpu,first,count,ranges);
         if(propMaterial)gl.uniform2f(propState,0,0);
         if(tintMasks||tintMask||fullTint)gl.uniform1i(uniform("decalPaletteEnabled"),0);
-        if(tintMask||fullTint)gl.uniform1i(uniform("surfacePaletteMode"),0);
+        if(tintMask||fullTint||alternateTint)gl.uniform1i(uniform("surfacePaletteMode"),surfacePaletteMode.disabled);
+        if(alternateTint)gl.uniform4f(uniform("surfacePaletteAlternate"),0,0,0,0);
         if(surfaceBlend)gl.uniform1f(uniform("surfaceDecalReciprocal"),0);
         if(countDraws){
           if(road)roadDecals++;
           else groundDraws++;
         }
       }
+      cullBackFaces(false);
       useInteriorClip();
       if(groundStencil)gl.disable(gl.STENCIL_TEST);
       gl.disable(gl.POLYGON_OFFSET_FILL);

@@ -1,6 +1,8 @@
+import { opaqueMaterialBTexture } from "./street-material-constants";
 import { inflate, view, type Archive } from "./archive";
 import { decodeBcpackBc1 } from "./bcpack";
 import { readableRoadMasks, retroDecalControls, roadDecalControl, roadWeightPrefix, elevatedRoadWeightPrefix, projectedRoadWeightPrefix, roadHeightPrefix, roadControlPrefix, roadSurfacePrefix, roadTintPrefix, roadSurfaceTintPrefix, roadHeightBlueAlpha, type RoadHeightMip } from "./street-road-material";
+import { streetSignFontPack, streetSignFontTexture } from "./street-sign-font";
 import { detailAtlasSlicePrefix, roomGlassTexturePrefix, signGlyphPrefix, terrainTexturePrefix, waterScumTexturePrefix, type StreetBlockTexture, type StreetTextureImage } from "./street-terrain-material";
 import { closeMaterialPrefix, compressedMaterialFormats, compressedRoadColorFormats, streetBudgets } from "./street-capacity";
 import { bc1, blockOffset, loadPack, readMip, readTextureChunk, textureChunkSize, type Image, type Pack, type Texture } from "./texture";
@@ -320,12 +322,15 @@ function bc1Tiles64K(raw:Uint8Array,width:number,height:number,keepAlpha=false,b
   return bc1(tiled4k,width,height,keepAlpha);
 }
 
-async function readWideWeightBlocks(pack:Pack,texture:Texture){
-  const {width,height,mode,tileMode,start,end,mipCount}=texture;
-  if(mode!==0x239||tileMode!==0||end!==start+1)return null;
+function packedWideWeights({width,height,mode,tileMode,start,end,mipCount}:Texture){
   const square=width===height&&(width===1024||width===2048);
   const rectangular=height===2048&&(width===512||width===1024)&&mipCount===1;
-  if(!square&&!rectangular)return null;
+  return mode===0x239&&tileMode===0&&end===start+1&&(square||rectangular);
+}
+
+async function readWideWeightBlocks(pack:Pack,texture:Texture){
+  if(!packedWideWeights(texture))return null;
+  const {width,height,start}=texture;
   const size=width*height/2;
   return textureChunkSize(pack,start)===size?readTextureChunk(pack,start,size,decodeBcpackBc1):null;
 }
@@ -397,13 +402,32 @@ async function readRgbaTiles64K(pack:Pack,row:number,side:number):Promise<Image|
   return {width:side,height:side,rgba};
 }
 
+function glyphCoverage(distance:number){
+  const edge=Math.max(0,Math.min(1,(distance-120)/16));
+  return 255*edge*edge*(3-2*edge);
+}
+
 async function readSignGlyph(pack:Pack,texture:Texture):Promise<StreetTextureImage|null>{
   const {width,height,mode,tileMode,start,end,surface}=texture;
-  if(surface?.format!==28||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1||end!==start+1)return null;
-  const layout=mode===0xe0&&tileMode===1&&width===128&&height===64
-    ?[[0,1,5,7,9,10,11],[2,3,4,6,8,12]]
-    :mode===0xe1&&tileMode===0&&width===256&&height===256
-      ?[[0,1,4,7,9,11,13,14],[2,3,5,6,8,10,12,15]]:undefined;
+  if(!surface||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1||end!==start+1)return null;
+  if(surface.format===80){
+    const level=await readPoolBc4Top(pack,texture);
+    if(!level)return null;
+    const {rgba}=decodePoolBcChannels(level,1);
+    for(let at=0;at<rgba.length;at+=4){
+      rgba[at+3]=glyphCoverage(rgba[at]);
+      rgba[at]=rgba[at+1]=rgba[at+2]=255;
+    }
+    return {width,height,rgba,alphaCutout:true};
+  }
+  if(surface.format!==28)return null;
+  const layout=mode===0xe0&&tileMode===1
+    ?width===128&&height===64?[[0,1,5,7,9,10,11],[2,3,4,6,8,12]]:
+      width===64&&(height===64||height===128)
+        ?[[0,1,5,7,9,10],[2,3,4,6,8,11,...(height===128?[12]:[])]]:undefined
+    :mode===0xe1&&tileMode===0&&width===height&&(width===256||width===512)
+      ?[[0,1,4,7,9,11,13,14,...(width===512?[16]:[])],
+        [2,3,5,6,8,10,12,15,...(height===512?[17]:[])]]:undefined;
   if(!layout)return null;
   const size=width*height*4;
   if(textureChunkSize(pack,start)!==size)return null;
@@ -417,8 +441,7 @@ async function readSignGlyph(pack:Pack,texture:Texture):Promise<StreetTextureIma
   // before mip generation so small signs keep the average glyph opacity.
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
     const distance=raw[(rows[y]|columns[x])*4];
-    const edge=Math.max(0,Math.min(1,(distance-120)/16));
-    rgba[(y*width+x)*4+3]=255*edge*edge*(3-2*edge);
+    rgba[(y*width+x)*4+3]=glyphCoverage(distance);
   }
   return {width,height,rgba,alphaCutout:true};
 }
@@ -719,7 +742,7 @@ export function isStreetTexturePack(path:string){
 }
 
 const compactMaskPackPath="data/ttdb/weapons/ttdb_weapons.ttpf";
-const compactMaskKeys=new Set(["0x3fb347dace547ef9","0xa73870c6f65968be","0x59932052cc65cbee"]);
+const compactMaskKeys=new Set(["0x3fb347dace547ef9","0xa73870c6f65968be",opaqueMaterialBTexture]);
 
 // Five consecutive zlib pages of the EDUP texture alias table in the optional archive.
 const duplicateTexturePages=[
@@ -923,7 +946,7 @@ export class StreetTextures {
       const source=await this.findSourceWithAlias(key);
       if(!source)return null;
       const {pack,texture}=source,{width,height,surface}=texture;
-      if(width!==height||surface?.format!==71||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1)return null;
+      if(surface?.format!==71||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1)return null;
       const raw=await readWideWeightBlocks(pack,texture);
       if(!raw)return null;
       const columns=width/4,rows=height/4,pitch=Math.ceil(columns/128);
@@ -955,7 +978,13 @@ export class StreetTextures {
 
   async image(id:string,ground:boolean,terrainMips=true):Promise<StreetTextureImage|null>{
     if(id.startsWith(signGlyphPrefix)){
-      const source=await this.findSourceWithAlias(id.slice(signGlyphPrefix.length));
+      const key=id.slice(signGlyphPrefix.length);
+      if(key===streetSignFontTexture){
+        const archive=this.archives.get(streetSignFontPack),pack=archive&&await this.pack(archive);
+        const texture=pack&&findTexture(pack,key);
+        return pack&&texture?readSignGlyph(pack,texture):null;
+      }
+      const source=await this.findSourceWithAlias(key);
       return source?readSignGlyph(source.pack,source.texture):null;
     }
     if(id.startsWith(detailAtlasSlicePrefix)){
@@ -1028,9 +1057,11 @@ export class StreetTextures {
       const source=await this.findSourceWithAlias(id.slice(roadSurfaceTintPrefix.length));
       if(!source)return null;
       const {pack,texture}=source,{width,height,surface}=texture;
-      if(surface?.format!==72||surface.dimension!==1||surface.depth!==1||surface.mipLevels!==1)return null;
-      const image=await readPoolBc1(pack,texture,Math.max(width,height),true);
-      return image?.width===width&&image.height===height?{...image,baseLevelOnly:true}:null;
+      if(surface?.format!==72||surface.dimension!==1||surface.depth!==1)return null;
+      const levels=await readPoolBc1Chain(pack,texture);
+      if(!levels?.length||levels[0].width!==width||levels[0].height!==height)return null;
+      const [base,...authoredMips]=levels;
+      return authoredMips.length?{...base,authoredMips}:{...base,baseLevelOnly:true};
     }
     const surface=id.startsWith(roadSurfacePrefix);
     if(surface)id=id.slice(roadSurfacePrefix.length);
@@ -1057,8 +1088,9 @@ export class StreetTextures {
         }
       }
       if(!source)return null;
-      // Rectangular road masks need the projected color pass to retain paint.
-      if(roadWeight&&!elevatedWeight&&!projectedWeight&&source.texture.width!==source.texture.height)return null;
+      // Packed rectangular BC1 weights also occur on locally colored roads.
+      if(roadWeight&&!elevatedWeight&&!projectedWeight&&source.texture.width!==source.texture.height&&
+        !packedWideWeights(source.texture))return null;
       if(elevatedWeight){
         const {texture,pack}=source;
         const {width,height,mode,tileMode,mipCount,start,end}=texture,row=start+2;

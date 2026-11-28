@@ -1,3 +1,5 @@
+import { surfacePaletteMode } from "./street-material-constants";
+import { streetShadowReceiver } from "./street-shadow-constants";
 import {StreetEdgeAA} from "./street-edge-aa";
 import {install as installOpaque,disposeOpaque} from "./street-opaque-program";
 import {rendererReview} from "./street-renderer-review";
@@ -10,7 +12,7 @@ import { overviewTerrainTileSize, streetNearPlane } from "./street-grid";
 import { makeProgram, uniforms } from "./view-gl";
 import { defaultStreetFov, headingDegrees, maximumStreetPitch, streetProjection, type StreetDestination } from "./street-destination";
 import {standardPaletteMaterial,terrainDetailUnits,type StreetBlockTexture,type StreetTextureImage} from "./street-terrain-material";
-import { roadDetailFarDepth, type RoadHeightMip } from "./street-road-material";
+import { roadDetailFarDepth, roadDetailNearDepth, type RoadHeightMip } from "./street-road-material";
 import {streetRoomCubeUnit,type StreetCubeTexture} from "./street-cube-texture";
 import {streetRoomShader} from "./street-room-material";
 import {interiorClipEdgeCapacity} from "./street-interior";
@@ -262,20 +264,26 @@ void main(){
   propLayerAux=-1.0;
   propLayerDirtWeight=0.0;
   propParallaxVertex=vec2(vertexTerrainColor.g,abs(instanceScale.x));
-  if(!shadowPass&&propLayerState.x>0.0&&instanced==1&&instanceExtras.x<128.0){
-    int width=int(propLayerState.x);
+  bool instancePalette=propLayerState.x<0.0;
+  if(instancePalette)terrainVertexColor.rgb=vec3(1.0);
+  if(!shadowPass&&propLayerState.x!=0.0&&instanced==1&&instanceExtras.x<128.0&&
+    (!instancePalette||propLayerState.y==0.0||instanceExtras.z==0.0)){
+    int width=int(abs(propLayerState.x));
     int shift=8-(width&7);
     int variant=min(int(instanceExtras.x),(width>>shift)-1);
     int index=(variant<<shift)+int(round(vertexTerrainColor.b*255.0));
     int pitch=textureSize(propPalette,0).x;
     vec3 tint=texelFetch(propPalette,ivec2(index%pitch,index/pitch),0).rgb;
-    terrainVertexColor=vec4(tint,vertexTerrainColor.r);
-    propLayerAux=instanceExtras.y/255.0;
-    propLayerDirtWeight=vertexTerrainColor.g*(instanceExtras.z/255.0);
-    if(propParallaxMarch.x>0.0)
-      propLayerDirtWeight=vertexTerrainColor.a*(instanceExtras.z<255.0?instanceExtras.z/255.0:.4);
+    if(instancePalette)terrainVertexColor.rgb=tint;
+    else{
+      terrainVertexColor=vec4(tint,vertexTerrainColor.r);
+      propLayerAux=instanceExtras.y/255.0;
+      propLayerDirtWeight=vertexTerrainColor.g*(instanceExtras.z/255.0);
+      if(propParallaxMarch.x>0.0)
+        propLayerDirtWeight=vertexTerrainColor.a*(instanceExtras.z<255.0?instanceExtras.z/255.0:.4);
+    }
   }
-  if(mesh.w==${nativePaletteMaterial}.0||mesh.w==${standardPaletteMaterial}.0||decalPaletteEnabled||staticLayerState.x>0.0){
+  if(!instancePalette&&(mesh.w==${nativePaletteMaterial}.0||mesh.w==${standardPaletteMaterial}.0||decalPaletteEnabled||staticLayerState.x>0.0)){
     vec3 rgb=vertexTerrainColor.rgb;
     terrainVertexColor.rgb=mix(rgb/12.92,pow((rgb+.055)/1.055,vec3(2.4)),step(.04045,rgb));
   }
@@ -548,7 +556,8 @@ uniform bool roadVertexOnly;
 uniform bool roadUsesHeight;
 uniform bool roadAuthoredHeight;
 uniform bool roadSurfaceTint;
-uniform vec4 roadVertexTintAmount;
+uniform bool roadInverseVertexAlpha;
+uniform vec4 roadVertexTintAmount,roadVertexTintScale;
 uniform bool roadLocalVertexColor;
 uniform bool roadHasDetail;
 uniform bool roadHasParallax;
@@ -556,7 +565,7 @@ uniform vec2 roadControlOrigin;
 uniform vec4 roadParallaxStrength;
 uniform vec4 roadParallaxCenter;
 uniform vec4 roadParallaxRefine;
-uniform vec4 roadDetailU,roadDetailV,roadDetailStrength;
+uniform vec4 roadDetailU,roadDetailV,roadDetailStrength,roadDetailNormalStrength;
 uniform vec4 roadHeightChannels;
 uniform vec4 roadColorReference;
 uniform int roadMaskUV;
@@ -565,6 +574,8 @@ uniform bool terrainEnabled;
 uniform bool terrainProjectedDetail;
 #if STREET_TERRAIN_DETAIL
 uniform bool terrainLocalDetail;
+uniform bool roadHasBaseNormals;
+uniform vec4 roadBaseNormalStrength;
 uniform vec4 terrainDetailU,terrainDetailV,terrainDetailStrength;
 uniform sampler2D terrainDetailMaps[3];
 #endif
@@ -575,16 +586,23 @@ uniform vec2 staticLayerState;
 uniform vec4 staticDetail0;
 uniform vec4 staticDetail1;
 uniform vec4 staticLayerMarch;
-uniform vec3 staticLayerControlChannels;
+uniform vec4 staticLayerControlChannels;
+uniform vec2 staticLayerPaletteStrength;
+uniform vec2 staticLayerSecondaryScale;
+uniform bool staticLayerControlUV0;
 uniform int staticLayerDirt;
 uniform bool staticLayerDirtUV1;
 uniform bool staticLayerNormals;
 uniform bool twoLayerDecal;
 uniform bool hasDecalControl;
 uniform float retroBlend;
+uniform bool retroPrimaryUV0;
 uniform bool decalPaletteEnabled;
 uniform sampler2D roadMask;
 uniform int surfacePaletteMode;
+uniform float surfacePaletteMaskScale;
+uniform float surfacePaletteBackBlend;
+uniform vec4 surfacePaletteAlternate;
 uniform float surfaceDecalReciprocal;
 uniform highp sampler2D roadColors[4];
 uniform vec4 roadPrimary;
@@ -688,16 +706,18 @@ float sceneDistance(float depth){
 }
 #endif
 vec4 layeredDecal(vec4 primary,vec2 uv){
-  vec2 secondaryUV=retroBlend>0.0&&!decalPaletteEnabled?vec2(uv.x,1.0-uv.y):uv;
+  vec2 uv0=retroBlend>0.0&&!decalPaletteEnabled?vec2(uv.x,1.0-uv.y):uv;
+  vec2 primaryUV=retroPrimaryUV0?uv0:roadSecondaryUV;
+  vec2 secondaryUV=retroPrimaryUV0?roadSecondaryUV:uv0;
   vec4 secondary=texture(roadMask,secondaryUV);
-  if(retroBlend>0.0)primary=texture(materialColor,roadSecondaryUV);
+  if(retroBlend>0.0)primary=texture(materialColor,primaryUV);
   // Blend the two authored diffuse layers using vertex weight and control blue.
   float weight=clamp(decalBlend*(hasDecalControl?1.0+texture(roadColors[0],uv).b:1.0),0.0,1.0);
   float sharpness=retroBlend>0.0?retroBlend:hasDecalControl?4.0:1.0;
   weight=weight/mix(sharpness,1.0,weight)*secondary.a;
   vec3 a=linearColor(primary.rgb),b=linearColor(secondary.rgb);
   if(decalPaletteEnabled){
-    a*=mix(vec3(1.0),terrainVertexColor.rgb,texture(roadColors[1],roadSecondaryUV).a);
+    a*=mix(vec3(1.0),terrainVertexColor.rgb,texture(roadColors[1],primaryUV).a);
     b*=mix(vec3(1.0),terrainVertexColor.rgb,texture(roadColors[2],secondaryUV).a);
     if(primary.a<0.025)return vec4(srgbColor(b),secondary.a*weight);
   }
@@ -734,13 +754,25 @@ vec3 tintRoadLayer(vec3 diffuse,vec3 tint,float coverage,vec3 vertexTint,float v
   vec3 textured=mix(vertex,clamp(vertex*tint,0.0,1.0),clamp(coverage,0.0,1.0));
   return mix(textured,vertex,terrainVertexColor.a);
 }
-float roadDetailGain(sampler2D atlas,vec2 uv,float weight,float strength,bool inRange){
+vec3 roadDetailSample(sampler2D atlas,vec2 uv,float weight,bool inRange){
   vec2 dx=dFdx(uv),dy=dFdy(uv);
-  if(!inRange||weight<=0.0)return 1.0;
-  float blue=textureGrad(atlas,uv,dx,dy).b;
+  if(!inRange||weight<=0.0)return vec3(0.5);
+  return textureGrad(atlas,uv,dx,dy).rgb;
+}
+float roadDetailGain(float blue,float weight,float strength){
   return 1.0+strength*(2.0*clamp(0.5+(blue-0.5)*weight,0.0,1.0)-1.0);
 }
-vec3 roadColor(){
+float roadDetailGain(sampler2D atlas,vec2 uv,float weight,float strength,bool inRange){
+  return roadDetailGain(roadDetailSample(atlas,uv,weight,inRange).b,weight,strength);
+}
+vec3 terrainNormalInWorld(vec3 direction,vec4 frame,vec3 normal);
+vec3 roadNormalDirection(vec2 rg,float weight,float fade,vec2 base){
+  vec2 detail=(rg*2.0-1.0)*weight;
+  float detailZ=sqrt(max(0.0001,1.0-dot(detail,detail)));
+  float baseZ=sqrt(max(0.0001,1.0-dot(base,base)));
+  return normalize(vec3(base+detail*fade,baseZ*mix(1.0,detailZ,fade)));
+}
+vec3 roadColor(inout vec3 normal){
   float vertexResidual=clamp(1.0-dot(roadWeights.rgb,vec3(1.0)),0.0,1.0);
   vec4 weights=vec4(roadWeights.rgb,vertexResidual);
   if(!roadVertexOnly){
@@ -753,14 +785,14 @@ vec3 roadColor(){
   vec2 secondary=roadSecondaryUV*roadSecondary.xy+roadSecondary.zw;
   vec2 uv0=mix(secondary,primary,roadPrimaryLayers.x),uv1=mix(secondary,primary,roadPrimaryLayers.y);
   vec2 uv2=mix(secondary,primary,roadPrimaryLayers.z),uv3=mix(secondary,primary,roadPrimaryLayers.w);
-  vec4 surfaceCoverage=vec4(0.0),baseHeights=vec4(0.0);
+  vec4 packedAlpha=vec4(0.0),baseHeights=vec4(0.0);
   if(roadAuthoredHeight){
     vec2 layer0=roadSurfaceChannels(texture(terrainHeights[0],uv0),roadHeightChannels.x);
     vec2 layer1=roadSurfaceChannels(texture(terrainHeights[1],uv1),roadHeightChannels.y);
     vec2 layer2=roadSurfaceChannels(texture(terrainHeights[2],uv2),roadHeightChannels.z);
     vec2 layer3=roadSurfaceChannels(texture(terrainHeights[3],uv3),roadHeightChannels.w);
     baseHeights=vec4(layer0.x,layer1.x,layer2.x,layer3.x);
-    surfaceCoverage=vec4(layer0.y,layer1.y,layer2.y,layer3.y)*terrainTintAmount;
+    packedAlpha=vec4(layer0.y,layer1.y,layer2.y,layer3.y);
     weights=clamp(weights*max(vec4(0.01),(baseHeights-terrainHeightBias)*terrainHeightGain),0.0,1.0);
   }else if(roadUsesHeight){
     vec4 heights=vec4(terrainHeightBias.x>0.01?roadSurfaceChannels(texture(terrainHeights[0],uv0),roadHeightChannels.x).x:0.0,
@@ -806,10 +838,12 @@ vec3 roadColor(){
   }else if(roadSurfaceTint){
     vec3 tint=texture(terrainTint,materialUV).rgb;
     vec3 vertexTint=linearColor(terrainVertexColor.rgb);
-    c0=tintRoadLayer(c0,tint,surfaceCoverage.x,vertexTint,roadVertexTintAmount.x);
-    c1=tintRoadLayer(c1,tint,surfaceCoverage.y,vertexTint,roadVertexTintAmount.y);
-    c2=tintRoadLayer(c2,tint,surfaceCoverage.z,vertexTint,roadVertexTintAmount.z);
-    c3=tintRoadLayer(c3,tint,surfaceCoverage.w,vertexTint,roadVertexTintAmount.w);
+    vec4 sectorWeight=packedAlpha*terrainTintAmount;
+    vec4 vertexWeight=roadVertexTintAmount*(roadInverseVertexAlpha?1.0-packedAlpha:vec4(1.0));
+    c0=tintRoadLayer(c0,tint,sectorWeight.x,vertexTint*roadVertexTintScale.x,vertexWeight.x);
+    c1=tintRoadLayer(c1,tint,sectorWeight.y,vertexTint*roadVertexTintScale.y,vertexWeight.y);
+    c2=tintRoadLayer(c2,tint,sectorWeight.z,vertexTint*roadVertexTintScale.z,vertexWeight.z);
+    c3=tintRoadLayer(c3,tint,sectorWeight.w,vertexTint*roadVertexTintScale.w,vertexWeight.w);
   }else if(terrainHasTint){
     vec3 tint=texture(terrainTint,materialUV).rgb;
     c0=mix(c0,clamp(c0*tint*terrainTintScale.x,0.0,1.0),terrainTintAmount.x);
@@ -817,13 +851,45 @@ vec3 roadColor(){
     c2=mix(c2,clamp(c2*tint*terrainTintScale.z,0.0,1.0),terrainTintAmount.z);
     c3=mix(c3,clamp(c3*tint*terrainTintScale.w,0.0,1.0),terrainTintAmount.w);
   }
+  bool inRange=1.0<gl_FragCoord.w*${roadDetailFarDepth}.0;
+  vec3 d0=vec3(.5),d1=vec3(.5),d2=vec3(.5),d3=vec3(.5);
   if(roadHasDetail){
     // The native gate uses perspective clip W, in forward-view units.
-    bool inRange=1.0<gl_FragCoord.w*${roadDetailFarDepth}.0;
-    c0*=roadDetailGain(terrainNormals[0],uv0*vec2(roadDetailU.x,roadDetailV.x),weights.x,roadDetailStrength.x,inRange);
-    c1*=roadDetailGain(terrainNormals[1],uv1*vec2(roadDetailU.y,roadDetailV.y),weights.y,roadDetailStrength.y,inRange);
-    c2*=roadDetailGain(terrainNormals[2],uv2*vec2(roadDetailU.z,roadDetailV.z),weights.z,roadDetailStrength.z,inRange);
-    c3*=roadDetailGain(terrainNormals[3],uv3*vec2(roadDetailU.w,roadDetailV.w),weights.w,roadDetailStrength.w,inRange);
+    d0=roadDetailSample(terrainNormals[0],uv0*vec2(roadDetailU.x,roadDetailV.x),weights.x,inRange);
+    d1=roadDetailSample(terrainNormals[1],uv1*vec2(roadDetailU.y,roadDetailV.y),weights.y,inRange);
+    d2=roadDetailSample(terrainNormals[2],uv2*vec2(roadDetailU.z,roadDetailV.z),weights.z,inRange);
+    d3=roadDetailSample(terrainNormals[3],uv3*vec2(roadDetailU.w,roadDetailV.w),weights.w,inRange);
+    c0*=roadDetailGain(d0.b,weights.x,roadDetailStrength.x);
+    c1*=roadDetailGain(d1.b,weights.y,roadDetailStrength.y);
+    c2*=roadDetailGain(d2.b,weights.z,roadDetailStrength.z);
+    c3*=roadDetailGain(d3.b,weights.w,roadDetailStrength.w);
+  }
+  vec2 b0=vec2(0.0),b1=vec2(0.0),b2=vec2(0.0),b3=vec2(0.0);
+  bool baseNormals=false;
+#if STREET_TERRAIN_DETAIL
+  baseNormals=roadHasBaseNormals;
+  if(baseNormals){
+    b0=(texture(waterBackdrop,uv0).rg*2.0-1.0)*roadBaseNormalStrength.x;
+    b1=(texture(terrainDetailMaps[0],uv1).rg*2.0-1.0)*roadBaseNormalStrength.y;
+    b2=(texture(terrainDetailMaps[1],uv2).rg*2.0-1.0)*roadBaseNormalStrength.z;
+    b3=(texture(terrainDetailMaps[2],uv3).rg*2.0-1.0)*roadBaseNormalStrength.w;
+  }
+#endif
+  bool detailNormals=roadHasDetail&&inRange&&any(greaterThan(roadDetailNormalStrength,vec4(0.0)));
+  if(baseNormals||detailNormals){
+    float distanceFade=detailNormals?clamp((${roadDetailFarDepth}.0-1.0/gl_FragCoord.w)/
+      (${roadDetailFarDepth}.0-${roadDetailNearDepth}.0),0.0,1.0):0.0;
+    vec4 fade=roadDetailNormalStrength*distanceFade;
+    vec3 n0=roadNormalDirection(d0.rg,weights.x,fade.x,b0);
+    vec3 n1=roadNormalDirection(d1.rg,weights.y,fade.y,b1);
+    vec3 n2=roadNormalDirection(d2.rg,weights.z,fade.z,b2);
+    vec3 n3=roadNormalDirection(d3.rg,weights.w,fade.w,b3);
+    vec3 secondary=n0*weights.x*(1.0-roadPrimaryLayers.x)+n1*weights.y*(1.0-roadPrimaryLayers.y)+
+      n2*weights.z*(1.0-roadPrimaryLayers.z)+n3*weights.w*(1.0-roadPrimaryLayers.w);
+    vec3 primary=n0*weights.x+n1*weights.y+n2*weights.z+n3*weights.w-secondary;
+    vec3 blendedNormal=terrainNormalInWorld(primary,terrainTangent,normal)+
+      terrainNormalInWorld(secondary,terrainSecondaryTangent,normal);
+    if(dot(blendedNormal,blendedNormal)>1e-8)normal=normalize(blendedNormal);
   }
   vec3 blended=c0*weights.x+c1*weights.y+c2*weights.z+c3*weights.w;
   if(roadProjectedDetail!=0.0){
@@ -1170,42 +1236,43 @@ float cloudSunVisibility(vec3 position){
   return 1.0;
 }
 #if STREET_SHADOWS
-float nearShadowSample(vec3 uv,float layer,float bias){
-  float samples=0.0;
-  for(int i=0;i<4;i++){
-    vec2 offset=vec2(float(i&1),float(i>>1))-.5;
-    samples+=texture(shadowDepth,vec4(uv.xy+offset*.0011,layer,uv.z-bias));
-  }
-  return samples*.25;
+float nearShadowSample(vec3 uv,float layer,vec4 axisX,vec4 axisZ,vec3 normal){
+  float texel=2.0/(length(axisX.xyz)*float(textureSize(shadowDepth,0).x));
+  float grazing=1.0-max(0.0,dot(normal,sunDirection));
+  float bias=texel*mix(${streetShadowReceiver.nearFacingBiasTexels},${streetShadowReceiver.nearGrazingBiasTexels},grazing)*length(axisZ.xyz)*.5;
+  // The depth sampler already filters the four texels around this point.
+  // Sampling only the corners farther out skips a one-texel caster.
+  return texture(shadowDepth,vec4(uv.xy,layer,uv.z-bias));
 }
 #endif
 float sunVisibility(vec3 position,vec3 normal){
   float cloud=cloudSunVisibility(position);
 #if STREET_SHADOWS
-  vec4 point=vec4(position+normal*.11,1.0);
-  vec3 uv=vec3(dot(point,shadowX),dot(point,shadowY),dot(point,shadowZ))*.5+.5;
+  vec4 nearPoint=vec4(position+normal*${streetShadowReceiver.nearNormalOffsetMeters},1.0);
+  vec3 uv=vec3(dot(nearPoint,shadowX),dot(nearPoint,shadowY),dot(nearPoint,shadowZ))*.5+.5;
   float edge=min(min(uv.x,1.0-uv.x),min(uv.y,1.0-uv.y));
-  float nearBlend=sunShadows&&uv.z>0.0&&uv.z<1.0?smoothstep(.015,.08,edge):0.0;
+  float nearBlend=sunShadows&&uv.z>0.0&&uv.z<1.0?smoothstep(${streetShadowReceiver.nearBlendInnerUv},${streetShadowReceiver.nearBlendOuterUv},edge):0.0;
   float farVisibility=1.0;
 #if STREET_DISTANT_SHADOWS
   if((nearBlend<.999||shadowPreviousWeight>0.0)&&sunDistantShadows){
+    vec4 point=vec4(position+normal*${streetShadowReceiver.distantNormalOffsetMeters},1.0);
     vec3 outer=vec3(dot(point,distantShadowX),dot(point,distantShadowY),dot(point,distantShadowZ))*.5+.5;
     float border=min(min(outer.x,1.0-outer.x),min(outer.y,1.0-outer.y));
     if(border>.02&&outer.z>0.0&&outer.z<1.0){
-      outer.z-=mix(.0015,.00065,max(0.0,dot(normal,sunDirection)));
+      outer.z-=mix(${streetShadowReceiver.distantGrazingDepthBias},${streetShadowReceiver.distantFacingDepthBias},max(0.0,dot(normal,sunDirection)));
       farVisibility=mix(1.0,texture(distantShadowDepth,outer),smoothstep(.02,.14,border)*.96);
     }
   }
 #endif
-  float bias=mix(.0017,.00035,max(0.0,dot(normal,sunDirection)));
   float current=farVisibility;
-  if(nearBlend>0.0)current=mix(farVisibility,nearShadowSample(uv,shadowLayer,bias),nearBlend);
+  if(nearBlend>0.0)current=mix(farVisibility,nearShadowSample(uv,shadowLayer,shadowX,shadowZ,normal),nearBlend);
   if(sunShadows&&shadowPreviousWeight>0.0){
-    vec3 previous=vec3(dot(point,shadowPreviousX),dot(point,shadowPreviousY),dot(point,shadowPreviousZ))*.5+.5;
+    vec3 previous=vec3(dot(nearPoint,shadowPreviousX),dot(nearPoint,shadowPreviousY),dot(nearPoint,shadowPreviousZ))*.5+.5;
     float border=min(min(previous.x,1.0-previous.x),min(previous.y,1.0-previous.y));
-    float coverage=previous.z>0.0&&previous.z<1.0?smoothstep(.015,.08,border):0.0;
+    float coverage=previous.z>0.0&&previous.z<1.0?smoothstep(${streetShadowReceiver.nearBlendInnerUv},${streetShadowReceiver.nearBlendOuterUv},border):0.0;
     float prior=farVisibility;
-    if(coverage>0.0)prior=mix(farVisibility,nearShadowSample(previous,1.0-shadowLayer,bias),coverage);
+    if(coverage>0.0)
+      prior=mix(farVisibility,nearShadowSample(previous,1.0-shadowLayer,shadowPreviousX,shadowPreviousZ,normal),coverage);
     current=mix(current,prior,smoothstep(0.0,1.0,shadowPreviousWeight));
   }
   return cloud*current;
@@ -1603,9 +1670,10 @@ void main(){
         uv1+=marchPropHeight(roadColors[2],uv1,dx,dy,ray,steps,staticLayerMarch.z,staticLayerMarch.w);
       }
     }
+    float control=dot(texture(roadColors[3],staticLayerControlUV0?uv0:uv1),staticLayerControlChannels);
+    uv1=vec2(uv1.x,uv1.y-1.0)*staticLayerSecondaryScale+vec2(0.0,1.0);
     vec4 primary=texture(roadMask,uv0);
     vec4 secondary=texture(roadColors[0],uv1);
-    float control=dot(texture(roadColors[3],uv1).gba,staticLayerControlChannels);
     float raw=clamp(terrainVertexColor.a*(1.0+control),0.0,1.0);
     float reciprocal=staticLayerState.x;
     float shaped=clamp(raw/max(.01,reciprocal+(1.0-reciprocal)*raw),0.0,1.0);
@@ -1616,8 +1684,8 @@ void main(){
       n=normalize(terrainNormalInWorld(mix(normal0,normal1,weight),terrainTangent,n));
     }
     vec4 mask0=texture(roadColors[1],uv0),mask1=texture(roadColors[2],uv1);
-    vec3 a=primary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask0.a);
-    vec3 b=secondary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask1.a);
+    vec3 a=primary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask0.a*staticLayerPaletteStrength.x);
+    vec3 b=secondary.rgb*mix(vec3(1.0),terrainVertexColor.rgb,mask1.a*staticLayerPaletteStrength.y);
     float gain0=0.0,gain1=0.0;
     if(staticDetail0.z>0.0){
       vec2 uv=uv0*staticDetail0.xy;
@@ -1679,7 +1747,7 @@ void main(){
   }else if(terrainEnabled){
     shade=mix(1.0,shade,0.55);
   }else if(roadEnabled){
-    base=roadColor();
+    base=roadColor(n);
     shade=mix(1.0,shade,0.55);
   }else if(useMaterial){
     vec2 atlasUV=(world.xy-groundAtlas.xy)/128.0;
@@ -1690,9 +1758,17 @@ void main(){
     if(hasCanopyNormal)n=normalize(atlasNormal);
     if(twoLayerDecal)source=layeredDecal(source,materialUV);
     if(surfaceDecalReciprocal>0.0)source=surfaceDecal(source);
-    if(surfacePaletteMode!=0){
-      float mask=surfacePaletteMode==2?1.0:texture(roadMask,materialUV).a;
-      source.rgb=srgbColor(linearColor(source.rgb)*mix(vec3(1.0),terrainVertexColor.rgb,mask));
+    if(surfacePaletteMode!=${surfacePaletteMode.disabled}){
+      float mask=surfacePaletteMode==${surfacePaletteMode.constant}?0.0:
+        surfacePaletteMode==${surfacePaletteMode.full}?1.0:1.0-surfacePaletteMaskScale*(1.0-texture(roadMask,materialUV).a);
+      vec3 diffuse=linearColor(source.rgb);
+      if(!gl_FrontFacing)diffuse=mix(diffuse,vec3(1),surfacePaletteBackBlend);
+      vec3 tint=mix(vec3(1.0),terrainVertexColor.rgb,mask);
+      if(surfacePaletteAlternate.a>0.0){
+        float alternateWeight=surfacePaletteAlternate.a*smoothstep(0.5,1.0,1.0-mask);
+        tint=mix(tint,linearColor(surfacePaletteAlternate.rgb),alternateWeight);
+      }
+      source.rgb=srgbColor(diffuse*tint);
     }
     if(material==${standardPaletteMaterial}.0)
       source.rgb=srgbColor(linearColor(source.rgb)*mix(vec3(1.0),terrainVertexColor.rgb,source.a));
@@ -1978,6 +2054,8 @@ export class StreetView {
     gl.uniform1i(locations("propPalette"),7);
     gl.uniform1i(locations("terrainTint"),11);
     gl.uniform1iv(locations("terrainNormals[0]"),[12,13,14,15]);
+    gl.uniform1f(locations("surfacePaletteMaskScale"),1);
+    gl.uniform1f(locations("surfacePaletteBackBlend"),0);
     gl.uniform1iv(locations("terrainDetailMaps[0]"),terrainDetailUnits.slice(1));
     gl.uniform1i(locations("waterBackdrop"),streetWaterBackdropUnit);
     this.shadows.bindSampler(locations("shadowDepth"));

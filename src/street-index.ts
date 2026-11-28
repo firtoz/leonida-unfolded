@@ -1,3 +1,4 @@
+import { legacyIndexScanVersions, unversionedIndexScanVersion } from "./street-cache-versions";
 import { gzipSync } from "fflate";
 import { Archive } from "./archive";
 import type { StreetAsset } from "./street-mesh";
@@ -334,18 +335,18 @@ export class LocalStreetIndex{
 
   private async initialize(){
     this.started=performance.now();
-    let legacyKeys:string[]=[];
+    const legacyKeys=new Map<number,string>();
     const db=await (async()=>{
       const sample=await this.archive.read(0,Math.min(4096,this.archive.file.size));
       const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",sample)),
         byte=>byte.toString(16).padStart(2,"0")).join("");
       this.cacheKey=`scan-v${indexScanVersion}:${this.token}:${fingerprint}`;
-      legacyKeys=[6,5].map(version=>`scan-v${version}:${this.token}:${fingerprint}`);
+      for(const version of legacyIndexScanVersions)legacyKeys.set(version,`scan-v${version}:${this.token}:${fingerprint}`);
       return openStreetIndexCache();
     })().catch(()=>undefined);
     if(this.closed){db?.close();return;}
     this.db=db;
-    const cached=db?await Promise.all([this.cacheKey,...legacyKeys].flatMap(key=>
+    const cached=db?await Promise.all([this.cacheKey,...legacyKeys.values()].flatMap(key=>
       (["bundle","spatial"] as const).map(kind=>cachedBundle(db,key,kind).catch(()=>undefined)))):[];
     const spatial=new Set(cached.filter((_,i)=>i%2===1));
     for(const file of new Set([this.bundleFile,...cached])){
@@ -354,14 +355,14 @@ export class LocalStreetIndex{
         const bundle=await StreetIndexBundle.open(file,this.archive.file);
         if(bundle.manifest.total!==this.total)throw new Error("Saved world index is incomplete.");
         if(this.closed)return;
-        const currentScan=(bundle.manifest.scanVersion??5)>=indexScanVersion;
+        const version=bundle.manifest.scanVersion??unversionedIndexScanVersion;
+        const currentScan=version>=indexScanVersion;
         const upgraded=currentScan&&bundle.manifest.terrain===true&&bundle.manifest.terrainLinks===true&&bundle.manifest.placementLods===true&&bundle.manifest.authoredLods===true&&
           bundle.manifest.stagedMaps===true&&bundle.manifest.propLods===true;
         this.portableError=undefined;
-        const version=bundle.manifest.scanVersion??5;
         if(db&&file===this.bundleFile){
-          const key=currentScan?this.cacheKey:legacyKeys[version===6?0:1];
-          void saveStreetIndexBundle(db,"bundle",key,file).catch(()=>{});
+          const key=currentScan?this.cacheKey:legacyKeys.get(version)??legacyKeys.get(unversionedIndexScanVersion);
+          if(key)void saveStreetIndexBundle(db,"bundle",key,file).catch(()=>{});
         }
         const portable=file===this.bundleFile||!spatial.has(file);
         if(!upgraded){
@@ -578,7 +579,7 @@ export class LocalStreetIndex{
   async foreground(point:readonly [number,number],radius:number,active:()=>boolean){
     await this.ready();
     if(!active())return [];
-    return this.bundle?.buildings(point,radius,active)??[];
+    return (this.bundle??this.fallbackBundle)?.buildings(point,radius,active)??[];
   }
 
   async buildings([x,y]:readonly [number,number],radius:number,active:()=>boolean,select?:(name:string)=>boolean,includeTerrain=false){

@@ -144,7 +144,7 @@ export function decodeIndexedPlacements(data:DataView,pages:readonly MapPage[]):
     return start;
   });
   const {offsets:placements,authoredLods,staged,keyOffset,tintSelectorOffset,propLayerControlOffset,propDirtControlOffset,
-    links,lodLinks}=placementLayout(data);
+    links,lodLinks,signLabels}=placementLayout(data);
   return placements.flatMap(at=>{
     const page=offsets.findIndex((start,index)=>at-52>=start&&at+24<=start+pages[index][2]);
     if(page<0||pages[page][3])return [];
@@ -152,6 +152,8 @@ export function decodeIndexedPlacements(data:DataView,pages:readonly MapPage[]):
     try{
       const [offset,stored,size]=pages[page];
       const row:IndexedPlacement={at:at-offsets[page],hash,placement:readPlacement(data,at,hash),range:[offset,stored,size]};
+      const sign=signLabels.get(at);
+      if(sign)row.placement.signLabel=sign;
       if(tintSelectorOffset!==undefined&&at+tintSelectorOffset>=offsets[page]&&
         at+tintSelectorOffset+4<=offsets[page]+size)
         row.placement.tintSelector=data.getUint32(at+tintSelectorOffset,true)&0x7f;

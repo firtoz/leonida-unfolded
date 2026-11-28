@@ -1,6 +1,7 @@
+import { streetIndexBundleHeader } from "./street-cache-versions";
 import { gzipSync } from "fflate";
 import type { Archive } from "./archive";
-import { indexBundleMagic, indexShardKey, indexShardKeys, indexShardSize, streetArchiveFingerprint, type IndexManifest, type IndexShard } from "./street-index-bundle";
+import { indexShardKey, indexShardKeys, indexShardSize, streetArchiveFingerprint, type IndexManifest, type IndexShard } from "./street-index-bundle";
 import { batchPlant, PlacementDrawables, indexStreetPropLod, readIndexedPlacements, streetAsset, type IndexedPlacement } from "./street-index-placement";
 import { growBounds, indexScanVersion, type IndexedMap, type IndexedVegetation, type ScanSegment } from "./street-index-scan";
 import type { VegetationModel } from "./street-vegetation";
@@ -78,8 +79,8 @@ export async function packStreetIndex(archive:Archive,total:number,
     payloads.push(payload);
     offset+=payload.byteLength;
   }
-  const encoded=encoder.encode(JSON.stringify(manifest)),header=new Uint8Array(12);
-  header.set(encoder.encode(indexBundleMagic));
-  new DataView(header.buffer).setUint32(8,encoded.byteLength,true);
+  const encoded=encoder.encode(JSON.stringify(manifest)),header=new Uint8Array(streetIndexBundleHeader.byteLength);
+  header.set(encoder.encode(streetIndexBundleHeader.magic));
+  new DataView(header.buffer).setUint32(streetIndexBundleHeader.lengthOffset,encoded.byteLength,true);
   return {file:new Blob([header,encoded,...payloads]),manifest,unknown,failedMaps,linked};
 }

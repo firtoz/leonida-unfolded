@@ -1,6 +1,6 @@
-import { inflate, view, type Archive } from "./archive";
+import { inflate, text, view, type Archive } from "./archive";
 import type { StreetAsset } from "./street-mesh";
-import { readPlacement } from "./street-placement";
+import { readPlacement, type SignLabel } from "./street-placement";
 import type { Bounds } from "./native-spatial";
 
 export type MapPage = [offset: number, bytes: number, decoded: number, raw?: 1];
@@ -66,6 +66,43 @@ function pointer(data: DataView, at: number, bytes: number) {
   return offset;
 }
 
+function readSignLabel(data:DataView,table:number,blocks:number,field:number):SignLabel|undefined{
+  const count=data.getUint16(field+8,true);
+  if(!count||count>data.getUint16(field+10,true))return;
+  const resolve=(ref:bigint,length:number)=>{
+    const block=Number(ref&0xfffffn),skip=Number(ref>>20n);
+    if(block<1||block>blocks)return;
+    const row=table+(block-1)*16;
+    if(skip+length>data.getUint32(row+4,true))return;
+    return {type:data.getUint32(row,true),start:pointer(data,row+8,skip+length)+skip};
+  };
+  try{
+    const refs=resolve(data.getBigUint64(field,true),count*8);
+    if(refs?.type!==7)return;
+    let label:SignLabel|undefined;
+    for(let i=0;i<count;i++){
+      const extension=resolve(data.getBigUint64(refs.start+i*8,true),0x30);
+      if(extension?.type!==0xf41297be)continue;
+      const at=extension.start+0x20;
+      // The supported layout has one inline text row per panel.
+      if(label||data.getUint16(at+8,true)!==1||data.getUint16(at+10,true)<1)return;
+      const row=resolve(data.getBigUint64(at,true),0x40);
+      if(row?.type!==0x55561451)return;
+      const start=row.start,length=data.getUint8(start+15)&0x7f;
+      if(!length||length>15||data.getUint32(start+0x14,true)!==0||data.getUint32(start+0x20,true)!==0||
+        data.getUint32(start+0x24,true)!==0||data.getUint8(start+0x38)!==1||data.getUint8(start+0x39)!==1)return;
+      const name=text.decode(new Uint8Array(data.buffer,data.byteOffset+start,length));
+      const font=data.getUint32(start+0x10,true);
+      const scale=data.getFloat32(start+0x18,true),width=data.getFloat32(start+0x28,true);
+      const anchor=data.getFloat32(start+0x2c,true),lineScale=data.getFloat32(start+0x30,true);
+      if(!font||!name.trim()||/[\u0000-\u001f\ufffd]/.test(name)||
+        ![scale,width,anchor,lineScale].every(Number.isFinite)||scale<=0||width<=0||lineScale<=0)return;
+      label={text:name,font,scale,width,anchor,lineScale,rgba:data.getUint32(start+0x34,true)};
+    }
+    return label;
+  }catch{return;}
+}
+
 export function placementOffsets(data: DataView, expected?: number): number[] {
   return placementLayout(data,expected,false).offsets;
 }
@@ -77,6 +114,7 @@ export function placementLayout(data:DataView,expected?:number,includeLinks=true
   const schema = pointer(data, 0x28, 32 * structs), blockTable = pointer(data, 0x38, 16 * blocks);
   let entitySchema = false, level=false, children=false, mapGroupSchema=false, keyOffset:number|undefined;
   let tintSelectorOffset:number|undefined,propLayerControlOffset:number|undefined,propDirtControlOffset:number|undefined;
+  let extensionsOffset:number|undefined;
   let mapSize=0,mapName:number|undefined,entityArray:number|undefined,parentMaps:number|undefined;
   let streamingMin:number|undefined,streamingMax:number|undefined,streamingBounds:Bounds|undefined;
   let parentFields=0;
@@ -118,6 +156,7 @@ export function placementLayout(data:DataView,expected?:number,includeLinks=true
       if(hash===0xc8a7b90a&&offset+8<=placementStride&&[0x08,0x4f].includes(data.getUint8(member+8)))
         keyOffset=offset-archetypeOffset;
       const kind=data.getUint8(member+8);
+      if(hash===0xf17e7f28&&kind===0x52&&offset+12<=placementStride)extensionsOffset=offset;
       if(hash===0x3c852527&&kind===0x15&&offset+4<=placementStride)
         tintSelectorOffset=offset-archetypeOffset;
       if(hash===0x0dc5f270&&kind===0x11&&offset<placementStride)
@@ -134,6 +173,7 @@ export function placementLayout(data:DataView,expected?:number,includeLinks=true
   const offsets: number[] = [];
   const links=new Map<number,TerrainPlacementLink>();
   const lodLinks=new Map<number,PlacementLodLink>();
+  const signLabels=new Map<number,SignLabel>();
   const authored=includeLinks?readMapLinks(data,blockTable,blocks,mapSize,mapName,entityArray,parentFields===7?parentMaps:undefined):undefined;
   let hasMap = false, staged=false;
   for (let i = 0; i < blocks; i++) {
@@ -162,6 +202,8 @@ export function placementLayout(data:DataView,expected?:number,includeLinks=true
     for(let at=start;at<start+bytes;at+=placementStride){
       const field=at+archetypeOffset;
       offsets.push(field);
+      const sign=includeLinks&&extensionsOffset!==undefined&&readSignLabel(data,blockTable,blocks,at+extensionsOffset);
+      if(sign)signLabels.set(field,sign);
       if(!authored)continue;
       const ordinal=authored.ordinals.get((BigInt(at-start)<<20n)|BigInt(i+1));
       if(ordinal===undefined||ordinal<0)continue;
@@ -183,7 +225,7 @@ export function placementLayout(data:DataView,expected?:number,includeLinks=true
   }
   if (!hasMap || expected !== undefined && offsets.length !== expected) throw new Error("Placement map count mismatch.");
   return {offsets,authoredLods:level&&children,staged,keyOffset,tintSelectorOffset,propLayerControlOffset,propDirtControlOffset,
-    links,lodLinks,streamingBounds};
+    links,lodLinks,signLabels,streamingBounds};
 }
 
 export async function compareNativePlacements(archive: Archive, probe: PlacementProbe, point: readonly [number, number],

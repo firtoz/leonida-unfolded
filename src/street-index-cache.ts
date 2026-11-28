@@ -1,9 +1,10 @@
+import { streetIndexDatabaseVersion } from "./street-cache-versions";
 import { gunzipSync } from "fflate";
 import type { ScanSegment } from "./street-index-scan";
 
 export function openStreetIndexCache(){
   return new Promise<IDBDatabase>((resolve,reject)=>{
-    const request=indexedDB.open("terrain-atlas-street-index",1);
+    const request=indexedDB.open("terrain-atlas-street-index",streetIndexDatabaseVersion);
     request.onupgradeneeded=()=>request.result.createObjectStore("segments");
     request.onsuccess=()=>resolve(request.result);
     request.onerror=request.onblocked=()=>reject(request.error??new Error("Could not open the local index cache."));

@@ -7,4 +7,5 @@ export const rendererReview={
   lod:options.includes("lod"),
   occlusion:options.includes("occlusion"),
   foliageOcclusion:options.includes("foliageOcclusion"),
+  ambientOcclusion:options.includes("ambientOcclusion"),
 };

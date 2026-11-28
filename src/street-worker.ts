@@ -1,3 +1,4 @@
+import { streetProxyCacheVersions, streetTextureCacheVersions } from "./street-cache-versions";
 import { cachedMeshBytes, loadStreetAsset, loadStreetRegion, loadVegetationGeometry, structureBounds } from "./street-mesh";
 import { broadleafCanopyCandidates, canopyAtlasRadius, canopyModel, distantCanopyAtlasCandidates, distantCanopyCandidates, distantCanopyRadius, nearbyVegetationSources, placeVegetation,
   nativePackedPlantCandidates, nativePackedRange, nativeVegetationRadius, readVegetationBatch, readVegetationGraphics, readVegetationHeader, readVegetationSource, scanVegetation, vegetationBatchId, vegetationCandidates, vegetationDistance,
@@ -46,6 +47,7 @@ import { Archive } from "./archive";
 import { drawableNameKey } from "./street-drawable-identity";
 import { openStreetImposterMetadata, type ImposterAtlasRecord } from "./street-imposter-metadata";
 import { imposterAtlasPackPath } from "./texture-pool-blocks";
+import { openStreetSignFont, streetSignFontPack, type StreetSignFont } from "./street-sign-font";
 
 
 type HorizonEntry={bounds:Bounds;cost:number;radius:number};
@@ -56,6 +58,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
   let assetCache:StreetAssetCache|undefined;
   let closeGraphics:(()=>void)|undefined;
   let materials:StreetMaterialLoader|undefined;
+  let signFont:Promise<StreetSignFont|undefined>|undefined;
   let navigation:Promise<StreetNavCatalog|undefined>|undefined;
   let environment:ReturnType<typeof loadStreetEnvironment>|undefined;
   let environmentPrepare:ReturnType<typeof openRpf9Preparer>|undefined;
@@ -149,7 +152,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       const optics=tiles.optics,cache=assetCache;
       tiles.optics=undefined;
       const current=()=>tiles===waterTiles;
-      const id=`optics-v2:${optics.bounds.join(",")}:${optics.tileSize}`;
+      const id=`optics-v${streetTextureCacheVersions.waterOptics}:${optics.bounds.join(",")}:${optics.tileSize}`;
       void (async()=>{
         const saved=await cache?.get("waterIndex",id);
         if(!current())return;
@@ -559,7 +562,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       const catalog=archive&&openTerrainCatalog(archive);
       const [indexed,native]=await Promise.all([
         index.buildings(point,radius,active,isRoof),
-        catalog?.query(point,radius,active).then(result=>result.assets.filter(asset=>isRoof(asset.name)))??[],
+        catalog?.query(point,radius,active,false).then(result=>result.assets.filter(asset=>isRoof(asset.name)))??[],
       ]);
       const assets=[...new Map([...indexed,...native].map(asset=>[`${asset.instance[0]}:${asset.at}`,asset])).values()];
       return {assets,retry:!index.complete&&!index.failed};
@@ -576,7 +579,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
       const levels=archives.archives.get("levels.rpf");
       closeGraphics=levels&&prepareStreetGraphics(levels);
       assetCache=reloading?undefined:new StreetAssetCache(inputs);
-      files=inputs;materials=new StreetMaterialLoader(files,assetCache);navigation=undefined;ocean=undefined;
+      files=inputs;materials=new StreetMaterialLoader(files,assetCache);signFont=undefined;navigation=undefined;ocean=undefined;
       environment=undefined;environmentPrepare=undefined;waterSourcesRequested=false;cloudNoiseRequested=false;
       cloudWorker?.terminate();cloudWorker=undefined;
       clearTimeout(waterTiles?.timer);
@@ -1309,7 +1312,7 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
               return name;
             };
             const readSkyline=async (asset:StreetAsset,id:string,bridge:boolean)=>{
-              const key=bridge?`bridge-v3:${id}`:`horizon-v4:${id}`;
+              const key=bridge?`bridge-v${streetProxyCacheVersions.bridge}:${id}`:`horizon-v${streetProxyCacheVersions.horizon}:${id}`;
               const cached=await assetCache?.get("mesh",key);
               let mesh=cached??await loadStreetAsset(archive,asset,true);
               if(asset.placementLod?.distance)mesh.placementLod=asset.placementLod;
@@ -1556,7 +1559,11 @@ export function createStreetWorker(send:(event:Event,transfer?:Transferable[])=>
               const ground=readTerrain(point,reach,detail,cells);
               if(detail>=0)prioritize(ground);
               return ground;
-            }:undefined,nativePlan);
+            }:undefined,nativePlan,()=>{
+              const data=files["data.rpf"],exe=files[rpf9ExecutableName];
+              return data&&exe&&files[streetSignFontPack]
+                ?signFont??=openStreetSignFont(data,exe).catch(()=>undefined):Promise.resolve(undefined);
+            });
           function nativePlan(planned:ReadonlySet<string>,conditional:ReadonlySet<string>){
             if(!nativeHorizon||index||!streetStructureMaterials)return;
             earlyHorizon=loadHorizon(id=>conditional.has(id)?

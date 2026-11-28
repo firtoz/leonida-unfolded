@@ -1,16 +1,18 @@
+import { streetTextureCacheVersions } from "./street-cache-versions";
 import { Archive, identify } from "./archive";
 import type { Event, Request } from "./protocol";
 import { inputProfile } from "./recover";
 import type { StreetAssetCache } from "./street-asset-cache";
 import { bakeDynamicTerrain, DynamicTerrainSectorCache, type DynamicTerrainSource, type TerrainSectorReader } from "./street-dynamic-terrain";
 import { dynamicTerrainPrefix, roomGlassTexturePrefix, streetBlueNoiseId, terrainTexturePrefix, type StreetBlockTexture, type StreetTextureImage } from "./street-terrain-material";
-import { roadHeightPrefix, roadSurfacePrefix, roadWeightPrefix } from "./street-road-material";
+import { roadHeightPrefix, roadSurfacePrefix, roadSurfaceTintPrefix, roadWeightPrefix } from "./street-road-material";
 import { StreetTextures, isStreetTexturePack } from "./street-textures";
 import { closeMaterialPrefix, compressedMaterialFormats, compressedRoadColorFormats } from "./street-capacity";
 import { streetInteriorCubePrefix } from "./street-cube-texture";
 import {openRpf9Preparer,rpf9ExecutableName} from "./rpf9-prepare";
 import {readStreetBlueNoise} from "./street-system-textures";
 import {detailAtlasPackPath} from "./texture-pool-blocks";
+import {streetSignFontPack} from "./street-sign-font";
 
 const textureProfiles=new Map(inputProfile.filter(({path})=>path.startsWith("data/ttdb/")||path==="textures.rpf")
   .map(spec=>[spec.path,spec]));
@@ -29,7 +31,8 @@ export class StreetMaterialLoader {
     }
     const profiled=new Set(archives.values());
     for(const [path,file] of Object.entries(this.files)){
-      if((isStreetTexturePack(path)||path===detailAtlasPackPath)&&!archives.has(path))archives.set(path,new Archive(path,file));
+      if((isStreetTexturePack(path)||path===detailAtlasPackPath||path===streetSignFontPack)&&!archives.has(path))
+        archives.set(path,new Archive(path,file));
     }
     return this.textures=new StreetTextures(archives,new Map(),profiled,async archive=>{
       const spec=textureProfiles.get(archive.path);
@@ -57,7 +60,7 @@ export class StreetMaterialLoader {
     }
     if(id.startsWith(roadHeightPrefix)){
       if(compression&&(compression&(compressedMaterialFormats.bc1|compressedMaterialFormats.bc7))){
-        const key="road-height-blocks-v2:"+id;
+        const key=`road-height-blocks-v${streetTextureCacheVersions.roadHeightBlocks}:${id}`;
         const saved=await this.cache?.get("blocks",key);
         const cached=saved&&(saved.format==="bc1"||saved.format==="bc7")&&
           (compression&compressedMaterialFormats[saved.format])?saved:undefined;
@@ -69,7 +72,7 @@ export class StreetMaterialLoader {
           return {event,transfer};
         }
       }
-      const key="road-height-rg-v3:"+id;
+      const key=`road-height-rg-v${streetTextureCacheVersions.roadHeightRG}:${id}`;
       const cached=await this.cache?.get("roadHeight",key);
       const levels=cached??await this.openTextures().roadHeightMips(id).catch(()=>null);
       if(levels){
@@ -82,7 +85,7 @@ export class StreetMaterialLoader {
     const glass=id.startsWith(roomGlassTexturePrefix);
     const roadColor=id.startsWith(closeMaterialPrefix+roadSurfacePrefix);
     if(roadColor&&compression){
-      const key="road-color-srgb-blocks-v1:"+id;
+      const key=`road-color-srgb-blocks-v${streetTextureCacheVersions.roadColorBlocks}:${id}`;
       const saved=await this.cache?.get("blocks",key);
       const cached=saved&&(compression&compressedRoadColorFormats[saved.format])?saved:undefined;
       const compressed=cached??await this.openTextures().compressedRoadColor(id,compression).catch(()=>null);
@@ -96,11 +99,12 @@ export class StreetMaterialLoader {
     const cache=(!close||roadColor)&&(!id.startsWith(dynamicTerrainPrefix)||source)?this.cache:undefined;
     const key=`false:${id}`;
     // Version decoded RGBA separately from compressed GPU blocks and meshes.
-    const imageKey=ground?`ground-authored-mips-v1:${id}`:glass?`glass-mip-chain:${id}`:
+    const imageKey=ground?`ground-authored-mips-v${streetTextureCacheVersions.groundAuthoredMips}:${id}`:glass?`glass-mip-chain:${id}`:
       roadColor?`road-color-mips:${id}`:
+      id.startsWith(roadSurfaceTintPrefix)?`road-surface-tint-mips:${id}`:
       id.startsWith(roadWeightPrefix)?`road-weight-mips:${id}`:
       id.startsWith(terrainTexturePrefix+"color:")||id.startsWith(terrainTexturePrefix+"normal:")||id.startsWith(terrainTexturePrefix+"height:")||id.startsWith(terrainTexturePrefix+"weights:")?`terrain-authored-mips:${id}`:
-      id.startsWith(terrainTexturePrefix+"material-mask:")?`material-mask-mips:${id}`:`material-rgba-v3:${id}`;
+      id.startsWith(terrainTexturePrefix+"material-mask:")?`material-mask-mips:${id}`:`material-rgba-v${streetTextureCacheVersions.materialRGBA}:${id}`;
     let image:StreetTextureImage|null=null,compressed:StreetBlockTexture|null=null,cached=false;
     try{
       const format=glass?compressedMaterialFormats.bc7:compressedMaterialFormats.bc1;
@@ -119,7 +123,7 @@ export class StreetMaterialLoader {
         if(!image){
           const textures=this.openTextures();
           if(close&&compression){
-            const blockKey="close-color-blocks-v1:"+id;
+            const blockKey=`close-color-blocks-v${streetTextureCacheVersions.closeColorBlocks}:${id}`;
             const saved=await this.cache?.get("blocks",blockKey);
             if(saved&&(compression&compressedMaterialFormats[saved.format])){
               compressed=saved;

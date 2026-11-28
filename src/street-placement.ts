@@ -1,5 +1,7 @@
 type LinearTransform=readonly [number,number,number,number,number,number,number,number,number];
 
+export type SignLabel={text:string;font:number;scale:number;width:number;anchor:number;lineScale:number;rgba:number};
+
 export type Placement = {
   position: [number, number, number];
   rotation: [number, number, number, number];
@@ -8,6 +10,7 @@ export type Placement = {
   tintSelector?: number;
   propLayerControl?: number;
   propDirtControl?: number;
+  signLabel?: SignLabel;
 };
 
 export function placementMatrix(placement:Placement,anchor:readonly [number,number,number]){

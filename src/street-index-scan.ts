@@ -19,7 +19,7 @@ export type ScanScope = "sample" | "full";
 export type StreetMemberRange = {offset:number;end:number;type?:number;chunks?:readonly number[];streamingBounds?:Bounds};
 export type IndexedGraphicsRange = {end:number;chunks?:readonly number[]};
 export const indexSegmentSize = 64 * 1024 * 1024;
-export const indexScanVersion=8;
+export { indexScanVersion } from "./street-cache-versions";
 const windowSize = 8 * 1024 * 1024;
 const maxPage = 2 * 1024 * 1024;
 const maxGraphicsPage = 32 * 1024 * 1024;

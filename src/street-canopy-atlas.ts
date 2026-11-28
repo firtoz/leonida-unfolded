@@ -1,9 +1,10 @@
+import { streetTextureCacheVersions } from "./street-cache-versions";
 import type { StreetChunk } from "./street-mesh";
 import type { StreetTextureImage } from "./street-terrain-material";
 import type { ImposterAtlasRecord } from "./street-imposter-metadata";
 
 export const canopyAtlasPrefix="canopy-atlas:";
-export const nativeCanopyAtlasPrefix=canopyAtlasPrefix+"octa-v5:";
+export const nativeCanopyAtlasPrefix=canopyAtlasPrefix+`octa-v${streetTextureCacheVersions.nativeCanopyAtlas}:`;
 export const nativeCanopyMaterial=80;
 
 export function nativeCanopyModel({center,radius,axis}:ImposterAtlasRecord,key:string):StreetChunk|undefined{

@@ -31,7 +31,9 @@ import { broadleafCanopyCandidates, distantCanopyAtlasCandidates, distantCanopyC
 import { decodeVegetationLocators, encodeVegetationLocators } from "../scripts/vegetation-locator";
 import { streetOceanFromElevation } from "../src/street-ocean";
 import { indexedGraphicsPages, readCarvedZlib, readIndexedGraphics, scanStreetSegment } from "../src/street-index-scan";
+import { indexScanVersion, streetIndexBundleHeader } from "../src/street-cache-versions";
 import { indexBundleMagic, StreetIndexBundle, streetArchiveFingerprint, type IndexManifest } from "../src/street-index-bundle";
+import { LocalStreetIndex } from "../src/street-index";
 import { decodeIndexedPlacements, indexStreetPropLod, PlacementDrawables, streetAsset, type IndexedPlacement } from "../src/street-index-placement";
 import { joaat } from "../src/places";
 import { authoredLodParent, bridgeDeckProxy, streetLodInRange, clonedPrefabName, roadBridgeDrawable, sameStreetLodPlacement,
@@ -545,6 +547,43 @@ test("portable world index validates the archive and reads only the requested sp
   expect(reads).toHaveLength(3);
   await expect(StreetIndexBundle.open(file,new Blob([new Uint8Array(archive.size).fill(1)])))
     .rejects.toThrow("different archive");
+});
+
+test("a v8 street index supplies geometry while a sign-aware index is pending",async()=>{
+  const archive=new Archive("levels.rpf",new Blob([new Uint8Array(4096)]));
+  const fingerprint=await streetArchiveFingerprint(archive.file);
+  const model={name:"test_building",hash:20,system:100,streams:[[100,20,24]]};
+  const signLabel={text:"TEST",font:1,scale:1,width:1,anchor:0,lineScale:1,rgba:0xffffffff};
+  const file=(scanVersion:number,withSign=false)=>{
+    const encoder=new TextEncoder();
+    const shard=gzipSync(encoder.encode(JSON.stringify({models:[model],vegetation:[],entities:[{
+      hash:model.hash,at:72,range:[100,20,24],placement:{position:[5,5,3],rotation:[0,0,0,1],scale:[1,1],
+        signLabel:withSign?signLabel:undefined},
+    }]})));
+    const manifest:IndexManifest={archive:{size:archive.file.size,fingerprint},scanVersion,
+      terrain:true,terrainLinks:true,placementLods:true,authoredLods:true,stagedMaps:true,propLods:true,
+      total:1,maps:1,vegetation:0,models:1,placements:1,plants:[],shards:{"0,0":[0,shard.byteLength]}};
+    const json=encoder.encode(JSON.stringify(manifest)),header=new Uint8Array(streetIndexBundleHeader.byteLength);
+    header.set(encoder.encode(indexBundleMagic));
+    view(header).setUint32(streetIndexBundleHeader.lengthOffset,json.byteLength,true);
+    return new Blob([header,json,shard]);
+  };
+  const active=()=>true,point=[5,5] as const;
+  const legacy=new LocalStreetIndex(archive,()=>{},new Blob(),file(8));
+  const rebuilt=new LocalStreetIndex(archive,()=>{},new Blob(),file(indexScanVersion,true));
+  try{
+    await legacy.prepare();
+    expect(legacy.complete).toBe(false);
+    expect((await legacy.buildings(point,8,active)).map(asset=>asset.name)).toEqual([model.name]);
+    expect((await legacy.foreground(point,8,active)).map(asset=>asset.name)).toEqual([model.name]);
+
+    await rebuilt.prepare();
+    expect(rebuilt.complete).toBe(true);
+    expect((await rebuilt.buildings(point,8,active)).map(asset=>asset.placement?.signLabel)).toEqual([signLabel]);
+  }finally{
+    legacy.close();
+    rebuilt.close();
+  }
 });
 
 test("a named prop batch LOD can supply the base placement's drawable",()=>{

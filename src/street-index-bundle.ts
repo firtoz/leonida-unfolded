@@ -1,3 +1,4 @@
+import { streetIndexBundleHeader } from "./street-cache-versions";
 import { gunzipSync } from "fflate";
 import { streetAsset, type IndexedPlacement } from "./street-index-placement";
 import type { Footprint, IndexedVegetation } from "./street-index-scan";
@@ -7,9 +8,8 @@ import { bridgeDeckProxy, lowSkylineHeight } from "./street-lod";
 
 export const indexFileName="terrain-street.terrain-index";
 export const indexFileExtension=".terrain-index";
-export const indexBundleMagic="TAIDX001";
+export const indexBundleMagic=streetIndexBundleHeader.magic;
 export const indexShardSize=256;
-const prefixSize=12;
 const maxManifest=8*1024*1024;
 const maxShard=64*1024*1024;
 const decoder=new TextDecoder();
@@ -59,12 +59,12 @@ export class StreetIndexBundle {
   }
 
   static async open(file:Blob,archive:Blob){
-    const header=await file.slice(0,prefixSize).arrayBuffer();
-    if(header.byteLength!==prefixSize||decoder.decode(header.slice(0,8))!==indexBundleMagic)
+    const header=await file.slice(0,streetIndexBundleHeader.byteLength).arrayBuffer();
+    if(header.byteLength!==streetIndexBundleHeader.byteLength||decoder.decode(header.slice(0,streetIndexBundleHeader.lengthOffset))!==streetIndexBundleHeader.magic)
       throw new Error("Unsupported world index format.");
-    const size=new DataView(header).getUint32(8,true), dataStart=prefixSize+size;
+    const size=new DataView(header).getUint32(streetIndexBundleHeader.lengthOffset,true), dataStart=streetIndexBundleHeader.byteLength+size;
     if(!size||size>maxManifest||dataStart>file.size)throw new Error("Invalid world index header.");
-    const manifest=JSON.parse(await file.slice(prefixSize,dataStart).text()) as IndexManifest;
+    const manifest=JSON.parse(await file.slice(streetIndexBundleHeader.byteLength,dataStart).text()) as IndexManifest;
     if(manifest.archive?.size!==archive.size||manifest.archive.fingerprint!==await streetArchiveFingerprint(archive))
       throw new Error("Saved world index belongs to a different archive.");
     if(!Array.isArray(manifest.plants)||!manifest.shards||

@@ -11,6 +11,7 @@ export const roadControlPrefix="road-control:";
 export const roadSurfacePrefix="road-surface:";
 export const roadTintPrefix="road-tint:";
 export const roadSurfaceTintPrefix="road-surface-tint:";
+export const roadDetailNearDepth=10;
 export const roadDetailFarDepth=15;
 export type RoadHeightMip={width:number;height:number;channels:Uint8Array<ArrayBuffer>};
 export function roadHeightBlueAlpha(rgba:Uint8ClampedArray){
@@ -33,9 +34,13 @@ export type RoadLayers={
   primary:[number,number,number,number];
   secondary:[number,number,number,number];
   powers:[number,number,number,number];
-  height?:{textures:[string|null,string|null,string|null,string|null];gain:RoadLayers["primary"];cutoff:RoadLayers["primary"];authored?:true};
-  tint?:{texture:string;scale:RoadLayers["primary"];amount:RoadLayers["primary"];surfaceAlpha?:true;vertexAmount?:RoadLayers["primary"]};
-  detail?:{textures:[string,string,string,string];u:RoadLayers["primary"];v:RoadLayers["primary"];strength:RoadLayers["primary"]};
+  height?:{textures:[string|null,string|null,string|null,string|null];gain:RoadLayers["primary"];cutoff:RoadLayers["primary"];
+    authored?:true;optional?:true};
+  tint?:{texture:string;scale:RoadLayers["primary"];amount:RoadLayers["primary"];surfaceAlpha?:true;
+    vertexAmount?:RoadLayers["primary"];vertexScale?:RoadLayers["primary"]};
+  detail?:{textures:[string,string,string,string];u:RoadLayers["primary"];v:RoadLayers["primary"];
+    strength:RoadLayers["primary"];normalStrength?:RoadLayers["primary"]};
+  normals?:{textures:[string,string,string,string];strength:RoadLayers["primary"]};
   parallax?:{texture:string;origin:[number,number];strength:RoadLayers["primary"];center:RoadLayers["primary"];refine:RoadLayers["primary"]};
 };
 

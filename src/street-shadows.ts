@@ -1,14 +1,14 @@
+import { streetShadowMap } from "./street-shadow-constants";
 import type { Bounds } from "./native-spatial";
+import { streetBudgets } from "./street-capacity";
 
 type Vec=readonly [number,number,number];
-const groundExtent=140;
-const shadowTransitionMs=180;
-export const streetShadowUnit=16;
-export const streetDistantShadowUnit=22;
+export const streetShadowUnit=streetShadowMap.nearSamplerUnit;
+export const streetDistantShadowUnit=streetShadowMap.distantSamplerUnit;
 const dot=(a:Vec,b:Vec)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
 export function streetShadowCenter(eye:Vec,origin:Vec,yaw:number,reach:number,altitude:number):Vec{
   // The same physical view can be entered from a different local scene origin.
-  const snap=(value:number,offset:number)=>Math.round((value+offset)/8)*8-offset;
+  const snap=(value:number,offset:number)=>Math.round((value+offset)/streetShadowMap.centerSnapMeters)*streetShadowMap.centerSnapMeters-offset;
   return [snap(eye[0]+Math.cos(yaw)*reach,origin[0]),snap(eye[1]+Math.sin(yaw)*reach,origin[1]),
     snap(eye[2]-Math.max(12,Math.min(altitude*.68,120)),origin[2])];
 }
@@ -24,11 +24,11 @@ export class StreetShadows {
   private layer=0;
 
   private readonly unit:number;
-  private readonly size:number;
+  private size:number;
 
   constructor(private readonly gl:WebGL2RenderingContext,private readonly distant=false){
     this.unit=distant?streetDistantShadowUnit:streetShadowUnit;
-    this.size=distant?1024:2048;
+    this.size=distant?streetShadowMap.distantSize:Math.min(streetBudgets.nearShadowSize,gl.getParameter(gl.MAX_TEXTURE_SIZE));
   }
 
   bindSampler(location:WebGLUniformLocation|null){
@@ -43,12 +43,16 @@ export class StreetShadows {
     gl.uniform1i(enabled,0);
     if(sun[2]<.10||sunIntensity<=0||this.distant&&altitude<48)return;
     if(this.distant&&!settled&&!this.target)return;
-    if(!this.target&&!this.allocate())return;
+    if(!this.target&&!this.allocate()){
+      if(this.distant||this.size<=streetShadowMap.nearDefaultSize)return;
+      this.size=streetShadowMap.nearDefaultSize;
+      if(!this.allocate())return;
+    }
     // In flight a larger patch is visible and the terrain under the camera
     // is usually out of frame. Keep walking shadows at their original density.
-    const previousExtent=this.frame?.extent??groundExtent;
-    const extent=this.distant?630:altitude>=(previousExtent===280?92:100)?280:altitude>=(previousExtent>=210?36:42)?210:groundExtent;
-    const reach=(extent-groundExtent)*(this.distant?.48:.63);
+    const previousExtent=this.frame?.extent??streetShadowMap.groundExtentMeters;
+    const extent=this.distant?630:altitude>=(previousExtent===280?92:100)?280:altitude>=(previousExtent>=210?36:42)?210:streetShadowMap.groundExtentMeters;
+    const reach=(extent-streetShadowMap.groundExtentMeters)*(this.distant?.48:.63);
     const center=streetShadowCenter(eye,origin,yaw,reach,altitude);
     const key=[...center,...sun,extent,settled].join(",");
     const setAxes=(prefix:string,rows:number[][])=>{
@@ -102,7 +106,7 @@ export class StreetShadows {
       this.frame={axes,center,sun,extent};
     }
     if(this.frame)setAxes(this.distant?"distantShadow":"shadow",this.frame.axes);
-    const fade=this.previousAxes?Math.max(0,1-(now-this.paintedAt)/shadowTransitionMs):0;
+    const fade=this.previousAxes?Math.max(0,1-(now-this.paintedAt)/streetShadowMap.transitionMs):0;
     if(!this.distant){
       gl.uniform1f(uniform("shadowLayer"),this.layer);
       gl.uniform1f(uniform("shadowPreviousWeight"),fade);

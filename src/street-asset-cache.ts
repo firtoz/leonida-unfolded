@@ -1,3 +1,4 @@
+import { decodedStreetDatabaseVersion, decodedStreetNamespaceVersion } from "./street-cache-versions";
 import type { StreetChunk } from "./street-mesh";
 import type { StreetBlockTexture, StreetTextureImage } from "./street-terrain-material";
 import { streetBudgets } from "./street-capacity";
@@ -25,7 +26,7 @@ function decodedStorageHeadroom(){
 
 function openCache(){
   return opening??=new Promise(resolve=>{
-    const request=indexedDB.open("terrain-atlas-decoded-fps",1);
+    const request=indexedDB.open("terrain-atlas-decoded-fps",decodedStreetDatabaseVersion);
     request.onupgradeneeded=()=>{
       const db=request.result;
       db.createObjectStore("assets");
@@ -50,7 +51,7 @@ export class StreetAssetCache {
   constructor(files:Record<string,File>){
     const sources=Object.entries(files).filter(([path])=>
       path==="levels.rpf"||path==="textures.rpf"||path.startsWith("data/ttdb/")).sort(([a],[b])=>a.localeCompare(b));
-    const key=JSON.stringify([1,streetBudgets.materialSide,sources.map(([path,file])=>[path,file.size,file.lastModified])]);
+    const key=JSON.stringify([decodedStreetNamespaceVersion,streetBudgets.materialSide,sources.map(([path,file])=>[path,file.size,file.lastModified])]);
     this.namespace=crypto.subtle.digest("SHA-256",new TextEncoder().encode(key))
       .then(hash=>Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join(""));
   }

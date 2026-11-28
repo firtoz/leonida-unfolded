@@ -1,32 +1,38 @@
+import { streetDeviceDefaults, streetDeviceTierThresholds, streetQualityTiers, streetScheduleTiers } from "./street-capacity-constants";
+import { streetShadowMap } from "./street-shadow-constants";
+
 type BrowserCapacity = {hardwareConcurrency?:number;deviceMemory?:number};
 
 export function streetCapacity(device:BrowserCapacity){
-  const threads=device.hardwareConcurrency??4;
-  const memory=device.deviceMemory??4;
+  const threads=device.hardwareConcurrency??streetDeviceDefaults.threads;
+  const memory=device.deviceMemory??streetDeviceDefaults.memoryGiB;
   // Browsers can mask core count independently across sessions. Keep the
   // full scene tier for capable devices and the middle tier for unknown memory.
-  const quality=device.deviceMemory===undefined?1:memory>=4?2:0;
-  const schedule=memory>=4?(threads>=12?2:1):0;
+  const quality=device.deviceMemory===undefined?1:memory>=streetDeviceTierThresholds.fullSceneMemoryGiB?2:0;
+  const schedule=memory>=streetDeviceTierThresholds.fullSceneMemoryGiB?(threads>=streetDeviceTierThresholds.highTierThreads?2:1):0;
   return {
-    scanWorkers:[1,2,4][schedule],
-    geometryReads:schedule===1&&threads<6?2:[1,3,6][schedule],
-    cachedStructures:[96,640,1024][quality],
-    decodedCacheBytes:[384,768,768][quality]*1024*1024,
-    decodedCacheWriteBytes:[20,32,32][quality]*1024*1024,
-    decodedMeshEntryBytes:[8,16,16][quality]*1024*1024,
-    drawableBytes:[96,144,224][quality]*1024*1024,
-    drawableCount:[64,96,144][quality],
-    residentMeshes:[96,256,384][quality],
-    residentMeshBytes:[24,64,96][quality]*1024*1024,
-    materialTextures:[128,232,320][quality],
-    groundTextures:[16,24,32][quality],
-    materialReads:[4,6,8][schedule],
-    groundReads:[2,3,4][schedule],
-    terrainReads:[2,2,3][schedule],
-    detailCells:[5,7,9][quality],
-    materialSide:quality>=1?512:256,
-    uploadCount:[8,16,24][schedule],
-    uploadMilliseconds:[3,4,5][schedule],
+    scanWorkers:streetScheduleTiers.scanWorkers[schedule],
+    geometryReads:schedule===1&&threads<streetDeviceTierThresholds.midTierReadThreads?
+      streetScheduleTiers.midTierLowThreadGeometryReads:streetScheduleTiers.geometryReads[schedule],
+    cachedStructures:streetQualityTiers.cachedStructures[quality],
+    decodedCacheBytes:streetQualityTiers.decodedCacheBytes[quality],
+    decodedCacheWriteBytes:streetQualityTiers.decodedCacheWriteBytes[quality],
+    decodedMeshEntryBytes:streetQualityTiers.decodedMeshEntryBytes[quality],
+    drawableBytes:streetQualityTiers.drawableBytes[quality],
+    drawableCount:streetQualityTiers.drawableCount[quality],
+    residentMeshes:streetQualityTiers.residentMeshes[quality],
+    residentMeshBytes:streetQualityTiers.residentMeshBytes[quality],
+    materialTextures:streetQualityTiers.materialTextures[quality],
+    groundTextures:streetQualityTiers.groundTextures[quality],
+    materialReads:streetScheduleTiers.materialReads[schedule],
+    groundReads:streetScheduleTiers.groundReads[schedule],
+    terrainReads:streetScheduleTiers.terrainReads[schedule],
+    detailCells:streetQualityTiers.detailCells[quality],
+    materialSide:streetQualityTiers.materialSide[quality],
+    nearShadowSize:memory>=streetShadowMap.highTierMemoryGiB&&threads>=streetShadowMap.highTierThreads?
+      streetShadowMap.nearHighSize:streetShadowMap.nearDefaultSize,
+    uploadCount:streetScheduleTiers.uploadCount[schedule],
+    uploadMilliseconds:streetScheduleTiers.uploadMilliseconds[schedule],
   };
 }
 
